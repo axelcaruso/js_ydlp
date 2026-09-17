@@ -58,15 +58,26 @@ export class YoutubeDL {
    * @param {object} [params.logger] - Custom logger with info, warn, error, debug methods.
    */
   constructor(params = {}) {
-    this.params = {
-      format: 'best',
-      outtmpl: DEFAULT_OUTTMPL,
-      quiet: false,
-      verbose: false,
-      skip_download: false,
-      continuedl: true,
-      ...params
+    const rawParams = { ...params };
+    const normalized = {
+      format: rawParams.format || 'best',
+      outtmpl: rawParams.output || rawParams.outtmpl || rawParams.out || DEFAULT_OUTTMPL,
+      quiet: rawParams.quiet ?? false,
+      verbose: rawParams.verbose ?? false,
+      skip_download: rawParams.skipDownload ?? rawParams.skip_download ?? false,
+      continuedl: rawParams.continueDl ?? rawParams.continuedl ?? true,
+      cookiefile: rawParams.cookieFile || rawParams.cookiefile || null,
+      cookiejar: rawParams.cookieJar || rawParams.cookiejar || null,
+      http_headers: rawParams.httpHeaders || rawParams.http_headers || null,
+      recode_video: rawParams.recodeVideo || rawParams.recode_video || (rawParams.ensureH264 || rawParams.ensure_h264 ? 'mp4' : null),
+      auto_recode_hevc: rawParams.autoRecodeHevc ?? rawParams.auto_recode_hevc ?? true,
+      prefer_h264: rawParams.preferH264 ?? rawParams.prefer_h264 ?? true,
+      ...rawParams
     };
+
+    if (rawParams.output && !rawParams.outtmpl) normalized.outtmpl = rawParams.output;
+    if (rawParams.out && !rawParams.outtmpl) normalized.outtmpl = rawParams.out;
+    this.params = normalized;
 
     // Initialize CookieJar
     this.cookiejar = this.params.cookiejar || new CookieJar();
@@ -77,7 +88,7 @@ export class YoutubeDL {
     // Initialize RequestDirector
     this.director = new RequestDirector({
       cookiejar: this.cookiejar,
-      headers: this.params.http_headers || this.params.httpHeaders
+      headers: this.params.http_headers
     });
 
     /** @type {Array<typeof InfoExtractor>} */
@@ -85,12 +96,81 @@ export class YoutubeDL {
     /** @type {Array<any>} */
     this._pps = [];
     /** @type {Array<(status: object) => void>} */
-    this._progressHooks = [...(this.params.progress_hooks || this.params.progressHooks || [])];
+    const rawHooks = this.params.progress_hooks || this.params.progressHooks || [];
+    const hooks = Array.isArray(rawHooks) ? rawHooks : [rawHooks];
+    if (typeof this.params.onProgress === 'function') {
+      hooks.push(this.params.onProgress);
+    }
+    this._progressHooks = [...hooks];
 
     // Load registered extractors
     for (const ieClass of gen_extractor_classes()) {
       this.add_info_extractor(ieClass);
     }
+  }
+
+  /**
+   * Sets format selector fluently and returns this instance.
+   * @param {string} fmt
+   * @returns {this}
+   */
+  format(fmt) {
+    this.params.format = fmt;
+    return this;
+  }
+
+  /**
+   * Sets output filename template fluently and returns this instance.
+   * @param {string} tmpl
+   * @returns {this}
+   */
+  output(tmpl) {
+    this.params.outtmpl = tmpl;
+    return this;
+  }
+
+  /**
+   * Registers a progress callback fluently and returns this instance.
+   * @param {(status: object) => void} fn
+   * @returns {this}
+   */
+  onProgress(fn) {
+    this.add_progress_hook(fn);
+    return this;
+  }
+
+  /**
+   * Event listener shorthand (e.g. .on('progress', cb)).
+   * @param {string} event
+   * @param {Function} fn
+   * @returns {this}
+   */
+  on(event, fn) {
+    if (event === 'progress' && typeof fn === 'function') {
+      this.add_progress_hook(fn);
+    }
+    return this;
+  }
+
+  /**
+   * Sets cookie file path fluently and returns this instance.
+   * @param {string} filePath
+   * @returns {this}
+   */
+  cookieFile(filePath) {
+    this.params.cookiefile = filePath;
+    this.cookiejar.loadFromFile(filePath);
+    return this;
+  }
+
+  /**
+   * Enables automatic video recoding to universal H.264/AAC.
+   * @param {string|boolean} [codec='mp4']
+   * @returns {this}
+   */
+  recode(codec = 'mp4') {
+    this.params.recode_video = codec;
+    return this;
   }
 
   /**
@@ -112,6 +192,14 @@ export class YoutubeDL {
     if (typeof hook === 'function') {
       this._progressHooks.push(hook);
     }
+  }
+
+  /**
+   * Alias for add_progress_hook.
+   * @param {(status: object) => void} hook
+   */
+  addProgressHook(hook) {
+    return this.add_progress_hook(hook);
   }
 
   /**
@@ -361,23 +449,38 @@ export class YoutubeDL {
   }
 
   /**
-   * Downloads a list of URLs in sequence.
+   * Downloads a list of URLs (or single URL) in sequence.
    * 1:1 with yt-dlp download.
    *
-   * @param {string[]} urlList - Array of URLs to download.
+   * @param {string|string[]} urlList - Single URL or array of URLs to download.
    * @returns {Promise<number>} Exit code (0 for success, 1 on error).
    */
   async download(urlList) {
+    const urls = Array.isArray(urlList) ? urlList : [urlList];
     let hasError = false;
-    for (const url of urlList) {
+    const downloadedFiles = [];
+    const downloadedInfos = [];
+
+    for (const url of urls) {
       try {
-        await this.extract_info(url, { download: true });
+        const info = await this.extract_info(url, { download: true });
+        downloadedInfos.push(info);
+        if (info._filename) downloadedFiles.push(info._filename);
       } catch (err) {
         hasError = true;
         this.report_error(`Failed to download ${url}: ${err.message}`);
       }
     }
-    return hasError ? 1 : 0;
+
+    const code = hasError ? 1 : 0;
+    this.last_result = {
+      success: !hasError,
+      code,
+      files: downloadedFiles,
+      info: downloadedInfos
+    };
+    this.lastResult = this.last_result;
+    return code;
   }
 
   /**
@@ -458,8 +561,10 @@ export class YoutubeDL {
    * @returns {Promise<{video: object, audio: object}>}
    */
   async download_separate(url, options = {}) {
-    const videoSelector = options.videoFormat || 'bestvideo';
-    const audioSelector = options.audioFormat || 'bestaudio';
+    const videoSelector = options.videoFormat || options.video_format || 'bestvideo';
+    const audioSelector = options.audioFormat || options.audio_format || 'bestaudio';
+    const videoOuttmpl = options.videoOuttmpl || options.video_outtmpl || options.videoOutput || null;
+    const audioOuttmpl = options.audioOuttmpl || options.audio_outtmpl || options.audioOutput || null;
 
     // Extract once without download
     const info = await this.extract_info(url, { download: false });
@@ -482,9 +587,8 @@ export class YoutubeDL {
       throw new Error(`Could not find matching audio format for selector: ${audioSelector}`);
     }
 
-    const videoRes = chosenVideo.width && chosenVideo.height ? `${chosenVideo.width}x${chosenVideo.height}` : (chosenVideo.format_note || 'unknown');
-    this.to_screen(`[download_separate] Selected video format: ${chosenVideo.format_id} (${videoRes}, codec: ${chosenVideo.vcodec})`);
-    this.to_screen(`[download_separate] Selected audio format: ${chosenAudio.format_id} (codec: ${chosenAudio.acodec}, bitrate: ${chosenAudio.tbr || 'N/A'}k)`);
+    this.to_screen(`[download_separate] Selected video format: ${chosenVideo.format_id} (${chosenVideo.width}x${chosenVideo.height}, codec: ${chosenVideo.vcodec})`);
+    this.to_screen(`[download_separate] Selected audio format: ${chosenAudio.format_id} (codec: ${chosenAudio.acodec}, bitrate: ${chosenAudio.tbr || 'unknown'}k)`);
 
     // Download video stream
     const videoInfo = {
@@ -494,8 +598,8 @@ export class YoutubeDL {
       ext: chosenVideo.ext || 'mp4',
       format_id: chosenVideo.format_id
     };
-    const videoFilename = options.videoOuttmpl
-      ? options.videoOuttmpl
+    const videoFilename = videoOuttmpl
+      ? videoOuttmpl
       : this.prepare_filename({ ...videoInfo, title: `${info.title}_video` });
 
     const VideoDownloaderClass = get_suitable_downloader(videoInfo, this.params);
@@ -515,8 +619,8 @@ export class YoutubeDL {
       ext: chosenAudio.ext || 'm4a',
       format_id: chosenAudio.format_id
     };
-    const audioFilename = options.audioOuttmpl
-      ? options.audioOuttmpl
+    const audioFilename = audioOuttmpl
+      ? audioOuttmpl
       : this.prepare_filename({ ...audioInfo, title: `${info.title}_music` });
 
     const AudioDownloaderClass = get_suitable_downloader(audioInfo, this.params);
@@ -663,7 +767,27 @@ export class YoutubeDL {
    * @returns {Promise<{ filename: string, info: object, artist: string, title: string, album: string, genre: string|null, year: string|null, lyrics: string|null, synced_lyrics: string|null, lrc_file: string|null }>}
    */
   async extract_audio(urlOrInfo, options = {}) {
-    const targetPath = options.outtmpl || '%(title)s.mp3';
+    const rawOpts = { ...options };
+    const opts = {
+      outtmpl: rawOpts.output || rawOpts.outtmpl || rawOpts.out || '%(title)s.mp3',
+      fetch_metadata: rawOpts.fetchMetadata ?? rawOpts.fetch_metadata ?? true,
+      embed_thumbnail: rawOpts.embedThumbnail ?? rawOpts.embed_thumbnail ?? true,
+      embed_lyrics: rawOpts.embedLyrics ?? rawOpts.embed_lyrics ?? true,
+      write_lrc: rawOpts.writeLrc ?? rawOpts.write_lrc ?? false,
+      embed_metadata: rawOpts.embedMetadata ?? rawOpts.embed_metadata ?? true,
+      cover: rawOpts.cover || rawOpts.coverPath || null,
+      artist: rawOpts.artist,
+      title: rawOpts.title,
+      album: rawOpts.album,
+      genre: rawOpts.genre,
+      year: rawOpts.year || rawOpts.date,
+      lyrics: rawOpts.lyrics,
+      acodec: rawOpts.acodec,
+      metadata: rawOpts.metadata || {},
+      ...rawOpts
+    };
+
+    const targetPath = opts.outtmpl;
     const isDirectAudioExt = targetPath.endsWith('.mp3') || targetPath.endsWith('.m4a') || targetPath.endsWith('.aac') || targetPath.endsWith('.opus') || targetPath.endsWith('.wav');
 
     // 1. Extract metadata
@@ -673,8 +797,8 @@ export class YoutubeDL {
     const url = info.webpage_url || (typeof urlOrInfo === 'string' ? urlOrInfo : '');
 
     // 2. Parse artist and title from metadata or title string
-    let artist = options.artist || info.artist;
-    let title = options.title || info.track;
+    let artist = opts.artist || info.artist;
+    let title = opts.title || info.track;
 
     if (!artist && info.title && info.title.includes(' - ')) {
       const parts = info.title.split(' - ');
@@ -690,12 +814,12 @@ export class YoutubeDL {
     if (!title) {
       title = info.title || 'Unknown Title';
     }
-    let album = options.album || info.album || title;
-    let genre = options.genre || info.genre || null;
-    let year = options.year || options.date || null;
+    let album = opts.album || info.album || title;
+    let genre = opts.genre || info.genre || null;
+    let year = opts.year || info.release_year || null;
 
     // Search rich music metadata (genre, official album, release year)
-    if (options.fetch_metadata !== false) {
+    if (opts.fetch_metadata !== false) {
       try {
         const lyricsProvider = new LyricsProvider({ director: this.director });
         const musicMeta = await lyricsProvider.fetchMusicMetadata({ artist, title, info });
@@ -714,11 +838,11 @@ export class YoutubeDL {
 
     // 3. Download thumbnail for cover art embedding
     let tmpCoverFile = null;
-    if (options.embed_thumbnail !== false) {
+    if (opts.embed_thumbnail !== false) {
       const sortedThumbs = Array.isArray(info.thumbnails)
         ? [...info.thumbnails].sort((a, b) => (b.width || 0) - (a.width || 0))
         : [];
-      const thumbUrl = options.cover || sortedThumbs[0]?.url || info.thumbnail;
+      const thumbUrl = opts.cover || sortedThumbs[0]?.url || info.thumbnail;
       if (thumbUrl) {
         tmpCoverFile = path.resolve(`temp_cover_${Date.now()}_${info.id}.jpg`);
         try {
@@ -735,13 +859,13 @@ export class YoutubeDL {
     let lyricsResult = null;
     let lrcFilePath = null;
     const shouldFetchLyrics = Boolean(
-      options.lyrics || options.embed_lyrics === true || options.write_lrc === true
+      opts.lyrics || opts.embed_lyrics === true || opts.write_lrc === true
     );
 
     if (shouldFetchLyrics) {
-      if (typeof options.lyrics === 'string' && options.lyrics.trim() !== '') {
+      if (typeof opts.lyrics === 'string' && opts.lyrics.trim() !== '') {
         lyricsResult = {
-          plainLyrics: options.lyrics,
+          plainLyrics: opts.lyrics,
           syncedLyrics: null,
           artist,
           title,
@@ -765,11 +889,11 @@ export class YoutubeDL {
       album,
       ...(genre ? { genre } : {}),
       ...(year ? { date: String(year) } : {}),
-      ...options.metadata
+      ...opts.metadata
     };
 
     if (lyricsResult) {
-      if (options.embed_lyrics !== false && (lyricsResult.plainLyrics || lyricsResult.syncedLyrics)) {
+      if (opts.embed_lyrics !== false && (lyricsResult.plainLyrics || lyricsResult.syncedLyrics)) {
         metadataTags.lyrics = lyricsResult.plainLyrics || lyricsResult.syncedLyrics;
       }
     }
@@ -783,7 +907,7 @@ export class YoutubeDL {
       );
 
       if (audioOnlyFormat && (targetPath.endsWith(`.${audioOnlyFormat.ext}`) || !isDirectAudioExt)) {
-        const destFilename = options.outtmpl || this.prepare_filename({ ...info, ext: audioOnlyFormat.ext });
+        const destFilename = opts.outtmpl || this.prepare_filename({ ...info, ext: audioOnlyFormat.ext });
         fs.mkdirSync(path.dirname(path.resolve(destFilename)), { recursive: true });
         const DownloaderClass = get_suitable_downloader(audioOnlyFormat, this.params);
         const downloader = new DownloaderClass(this, { ...this.params, progress_hooks: this._progressHooks });
@@ -794,7 +918,7 @@ export class YoutubeDL {
           await ffmpeg.embedMetadata(destFilename, { coverPath: tmpCoverFile, metadata: metadataTags });
         }
 
-        if (options.write_lrc && lyricsResult && (lyricsResult.syncedLyrics || lyricsResult.plainLyrics)) {
+        if (opts.write_lrc && lyricsResult && (lyricsResult.syncedLyrics || lyricsResult.plainLyrics)) {
           lrcFilePath = destFilename.replace(/\.[^.]+$/, '') + '.lrc';
           fs.writeFileSync(lrcFilePath, lyricsResult.syncedLyrics || lyricsResult.plainLyrics, 'utf8');
           this.to_screen(`[extract_audio] Saved lyrics to: ${lrcFilePath}`);
@@ -828,7 +952,7 @@ export class YoutubeDL {
       await downloader.download(tmpVideoFile, bestWithAudio);
 
       // Resolve final audio path
-      let finalAudioPath = options.outtmpl;
+      let finalAudioPath = opts.outtmpl;
       if (!finalAudioPath) {
         finalAudioPath = this.prepare_filename({ ...info, ext: 'mp3' });
       } else if (finalAudioPath.includes('%(')) {
@@ -839,12 +963,12 @@ export class YoutubeDL {
       const ffmpeg = new FFmpegPostProcessor();
       this.to_screen(`[extract_audio] Extracting audio with cover art, metadata & lyrics to: ${finalAudioPath}`);
       await ffmpeg.extractAudio(tmpVideoFile, finalAudioPath, {
-        acodec: options.acodec,
+        acodec: opts.acodec,
         coverPath: tmpCoverFile,
         metadata: metadataTags
       });
 
-      if (options.write_lrc && lyricsResult && (lyricsResult.syncedLyrics || lyricsResult.plainLyrics)) {
+      if (opts.write_lrc && lyricsResult && (lyricsResult.syncedLyrics || lyricsResult.plainLyrics)) {
         lrcFilePath = finalAudioPath.replace(/\.[^.]+$/, '') + '.lrc';
         fs.writeFileSync(lrcFilePath, lyricsResult.syncedLyrics || lyricsResult.plainLyrics, 'utf8');
         this.to_screen(`[extract_audio] Saved lyrics to: ${lrcFilePath}`);
@@ -872,5 +996,116 @@ export class YoutubeDL {
         if (tmpCoverFile && fs.existsSync(tmpCoverFile)) fs.unlinkSync(tmpCoverFile);
       } catch {}
     }
+  }
+
+  // =========================================================================
+  // Modern & Idiomatic camelCase Aliases
+  // =========================================================================
+
+  /**
+   * Alias for extract_info.
+   * @param {string} url
+   * @param {object} [options]
+   */
+  extractInfo(url, options) {
+    return this.extract_info(url, options);
+  }
+
+  /**
+   * Alias for list_formats.
+   * @param {object} infoDict
+   * @param {boolean} [print=true]
+   */
+  listFormats(infoDict, print = true) {
+    return this.list_formats(infoDict, print);
+  }
+
+  /**
+   * Alias for download_separate.
+   * @param {string} url
+   * @param {object} [options]
+   */
+  downloadSeparate(url, options = {}) {
+    return this.download_separate(url, options);
+  }
+
+  /**
+   * Alias for download_image.
+   * @param {string|object} urlOrInfo
+   * @param {string} [targetPath]
+   */
+  downloadImage(urlOrInfo, targetPath = null) {
+    return this.download_image(urlOrInfo, targetPath);
+  }
+
+  /**
+   * Alias for extract_audio.
+   * @param {string|object} urlOrInfo
+   * @param {object} [options]
+   */
+  extractAudio(urlOrInfo, options = {}) {
+    return this.extract_audio(urlOrInfo, options);
+  }
+
+  /**
+   * Intuitive alias for extract_audio (download music with embedded tags & cover).
+   * @param {string|object} urlOrInfo
+   * @param {object} [options]
+   */
+  downloadMusic(urlOrInfo, options = {}) {
+    return this.extract_audio(urlOrInfo, options);
+  }
+
+  /**
+   * Intuitive alias for extract_audio.
+   * @param {string|object} urlOrInfo
+   * @param {object} [options]
+   */
+  downloadAudio(urlOrInfo, options = {}) {
+    return this.extract_audio(urlOrInfo, options);
+  }
+
+  /**
+   * Alias for get_lyrics.
+   * @param {string|object} urlOrInfo
+   * @param {object} [options]
+   */
+  getLyrics(urlOrInfo, options = {}) {
+    return this.get_lyrics(urlOrInfo, options);
+  }
+
+  /**
+   * Alias for get_music_metadata.
+   * @param {string|object} urlOrInfo
+   * @param {object} [options]
+   */
+  getMusicMetadata(urlOrInfo, options = {}) {
+    return this.get_music_metadata(urlOrInfo, options);
+  }
+
+  /**
+   * Intuitive alias for get_music_metadata.
+   * @param {string|object} urlOrInfo
+   * @param {object} [options]
+   */
+  getMetadata(urlOrInfo, options = {}) {
+    return this.get_music_metadata(urlOrInfo, options);
+  }
+
+  /**
+   * Alias for select_format.
+   * @param {Array} formats
+   * @param {string|Function} selector
+   */
+  selectFormat(formats, selector) {
+    return this.select_format(formats, selector);
+  }
+
+  /**
+   * Alias for prepare_filename.
+   * @param {object} infoDict
+   */
+  prepareFilename(infoDict) {
+    return this.prepare_filename(infoDict);
   }
 }

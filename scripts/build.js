@@ -204,6 +204,9 @@ function transformModule(code) {
     return lines.join('\n');
   });
 
+  // export default <identifier/expression>; -> exports.default = <expression>;
+  transformed = transformed.replace(/^export\s+default\s+([^;]+);?\s*$/gm, 'exports.default = $1;');
+
   return transformed.trim();
 }
 
@@ -585,7 +588,18 @@ export function get_info_extractor(urlOrName) {
     'HttpFD',
     'get_suitable_downloader',
     'InfoExtractor',
-    'GenericIE'
+    'GenericIE',
+    'download',
+    'extractInfo',
+    'getInfo',
+    'downloadMusic',
+    'extractAudio',
+    'listFormats',
+    'downloadSeparate',
+    'downloadImage',
+    'getLyrics',
+    'getMetadata',
+    'ydlp'
   ];
 
   if (hasYouTube) {
@@ -619,7 +633,7 @@ import vm from 'node:vm';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-// Scoped Micro-Loader Registry
+// Unified Module Registry
 const __modules = new Map();
 const __cache = new Map();
 
@@ -655,7 +669,7 @@ export const {
   ${publicExports.join(',\n  ')}
 } = __main;
 
-export default YoutubeDL;
+export default __main.default || YoutubeDL;
 `;
 
   // Step 5: Minification with full mangling and comment stripping
