@@ -202,6 +202,11 @@ export class TikTokIE extends InfoExtractor {
         const urls = playAddr.UrlList || [];
         const quality = b.GearName || 'adaptive';
         const bitrate = int_or_none(b.Bitrate);
+        const codecType = (b.CodecType || '').toLowerCase();
+        const isHevc = codecType.includes('265') || codecType.includes('hvc') || codecType.includes('bytevc1') || (playAddr.UrlKey || '').includes('bytevc1');
+        const vcodec = isHevc ? 'hevc' : 'h264';
+        const itemWidth = int_or_none(playAddr.Width) || width || null;
+        const itemHeight = int_or_none(playAddr.Height) || height || null;
 
         for (let i = 0; i < urls.length; i++) {
           const u = urls[i];
@@ -210,14 +215,14 @@ export class TikTokIE extends InfoExtractor {
             format_id: `${quality}${urls.length > 1 ? `_${i}` : ''}`,
             url: u,
             ext: 'mp4',
-            vcodec: 'h264',
+            vcodec,
             acodec: 'aac',
-            width: width || null,
-            height: height || null,
+            width: itemWidth,
+            height: itemHeight,
             tbr: bitrate ? Math.round(bitrate / 1000) : null,
             filesize: int_or_none(playAddr.DataSize),
-            format_note: 'Direct playback (No watermark)',
-            preference: 1,
+            format_note: isHevc ? 'Direct playback (HEVC, No watermark)' : 'Direct playback (H.264, No watermark)',
+            preference: isHevc ? 1 : 1.5, // Prefer native H.264 over HEVC for broad player compatibility
             http_headers: commonHeaders
           });
         }
@@ -226,11 +231,13 @@ export class TikTokIE extends InfoExtractor {
 
     // 2. Unwatermarked primary playback address (playAddr)
     if (video.playAddr) {
+      const primaryCodec = (video.codecType || '').toLowerCase();
+      const isPrimaryHevc = primaryCodec.includes('265') || primaryCodec.includes('hvc') || primaryCodec.includes('bytevc1');
       formats.push({
         format_id: 'play',
         url: video.playAddr,
         ext: 'mp4',
-        vcodec: 'h264',
+        vcodec: isPrimaryHevc ? 'hevc' : 'h264',
         acodec: 'aac',
         width: width || null,
         height: height || null,

@@ -330,6 +330,31 @@ export class YoutubeDL {
       this.to_screen(`[download] Destination: ${filename}`);
       await downloader.download(filename, info);
       this.to_screen(`[download] 100% of ${filename}`);
+
+      // Auto-recode HEVC or requested codec to universal H.264 (yuv420p + aac) for maximum player compatibility
+      const isHevc = info.selected_format?.vcodec === 'hevc' || info.vcodec === 'hevc';
+      const shouldRecodeH264 = Boolean(
+        this.params.recode_video === 'mp4' ||
+        this.params.recode_video === 'h264' ||
+        this.params.recode_video === true ||
+        this.params.ensure_h264 === true ||
+        this.params.compat_codec === true ||
+        (isHevc && this.params.auto_recode_hevc !== false)
+      );
+
+      if (shouldRecodeH264 && fs.existsSync(filename)) {
+        const ffmpeg = new FFmpegPostProcessor();
+        if (await ffmpeg.isAvailable()) {
+          this.to_screen(`[ffmpeg] Converting ${path.basename(filename)} to universal H.264/AAC for player compatibility...`);
+          await ffmpeg.ensureUniversalVideo(filename, {
+            vcodec: 'libx264',
+            acodec: 'aac',
+            preset: this.params.recode_preset || 'fast',
+            crf: this.params.recode_crf || 22
+          });
+          this.to_screen(`[ffmpeg] 100% universal H.264 conversion complete: ${path.basename(filename)}`);
+        }
+      }
     }
 
     return info;

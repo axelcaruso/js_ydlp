@@ -173,4 +173,74 @@ export class FFmpegPostProcessor extends PostProcessor {
     fs.renameSync(tmpOut, audioPath);
     return audioPath;
   }
+
+  /**
+   * Recodes a video to universal H.264 (AVC) + AAC with yuv420p for 100% universal player compatibility.
+   *
+   * @param {string} inputPath - Input video path.
+   * @param {string} outputPath - Output recoded video path.
+   * @param {object} [options]
+   * @param {string} [options.vcodec='libx264'] - Video codec.
+   * @param {string} [options.acodec='aac'] - Audio codec.
+   * @param {string} [options.pix_fmt='yuv420p'] - Pixel format.
+   * @param {string} [options.preset='fast'] - x264 preset.
+   * @param {string|number} [options.crf='22'] - Constant rate factor quality.
+   * @returns {Promise<string>} Output path.
+   */
+  async recodeVideo(inputPath, outputPath, options = {}) {
+    const available = await this.isAvailable();
+    if (!available) {
+      throw new PostProcessingError('FFmpeg is required for video recoding but was not found in PATH');
+    }
+
+    const vcodec = options.vcodec || 'libx264';
+    const acodec = options.acodec || 'aac';
+    const pixFmt = options.pix_fmt || 'yuv420p';
+    const preset = options.preset || 'fast';
+    const crf = options.crf !== undefined ? String(options.crf) : '22';
+
+    const args = [
+      '-y',
+      '-i', inputPath,
+      '-c:v', vcodec,
+      '-pix_fmt', pixFmt,
+      '-preset', preset,
+      '-crf', crf,
+      '-c:a', acodec,
+      '-b:a', options.bitrate || '128k',
+      '-movflags', '+faststart',
+      outputPath
+    ];
+
+    return new Promise((resolve, reject) => {
+      const proc = spawn('ffmpeg', args, { stdio: 'ignore' });
+      proc.on('error', (err) => reject(new PostProcessingError(`FFmpeg execution error: ${err.message}`)));
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve(outputPath);
+        } else {
+          reject(new PostProcessingError(`FFmpeg video recoding failed with exit code ${code}`));
+        }
+      });
+    });
+  }
+
+  /**
+   * In-place converts a video file to universal H.264 if not already compatible.
+   *
+   * @param {string} videoPath
+   * @param {object} [options]
+   * @returns {Promise<string>}
+   */
+  async ensureUniversalVideo(videoPath, options = {}) {
+    const ext = videoPath.split('.').pop() || 'mp4';
+    const tmpOut = `${videoPath}.tmp_h264.${ext}`;
+    await this.recodeVideo(videoPath, tmpOut, options);
+    const fs = await import('node:fs');
+    if (fs.existsSync(videoPath)) {
+      fs.unlinkSync(videoPath);
+    }
+    fs.renameSync(tmpOut, videoPath);
+    return videoPath;
+  }
 }
