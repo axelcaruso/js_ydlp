@@ -593,6 +593,28 @@ export class YoutubeDL {
   }
 
   /**
+   * Fetches music metadata (genre, release date, album, artist, title) for a track.
+   *
+   * @param {string|object} urlOrInfo
+   * @param {object} [options]
+   * @returns {Promise<{ genre: string|null, year: string|null, releaseDate: string|null, album: string|null, artist: string, title: string, source: string }|null>}
+   */
+  async get_music_metadata(urlOrInfo, options = {}) {
+    const lyricsProvider = new LyricsProvider({ director: this.director });
+    if (typeof urlOrInfo === 'string') {
+      if (urlOrInfo.startsWith('http://') || urlOrInfo.startsWith('https://')) {
+        const info = await this.extract_info(urlOrInfo, { download: false });
+        return lyricsProvider.fetchMusicMetadata({ artist: options.artist || info.artist, title: options.title || info.title, info });
+      }
+      return lyricsProvider.fetchMusicMetadata({ artist: options.artist, title: urlOrInfo, info: {} });
+    }
+    if (urlOrInfo && typeof urlOrInfo === 'object') {
+      return lyricsProvider.fetchMusicMetadata({ artist: options.artist || urlOrInfo.artist, title: options.title || urlOrInfo.title, info: urlOrInfo });
+    }
+    return null;
+  }
+
+  /**
    * Downloads a media URL and extracts its audio track (music) with embedded thumbnail, metadata, and lyrics.
    * Equivalent to yt-dlp -x --embed-thumbnail --add-metadata.
    *
@@ -604,20 +626,26 @@ export class YoutubeDL {
    * @param {string} [options.artist] - Custom artist name (defaults to parsed video artist or uploader).
    * @param {string} [options.title] - Custom song title (defaults to parsed title).
    * @param {string} [options.album] - Custom album name.
+   * @param {string} [options.genre] - Custom genre name (auto-searched if omitted).
+   * @param {string|number} [options.year] - Release year.
+   * @param {boolean} [options.fetch_metadata=true] - Whether to search online databases for genre and album info.
    * @param {string} [options.cover] - Custom cover image URL or local path.
    * @param {boolean} [options.embed_thumbnail=true] - Whether to embed cover art image.
    * @param {boolean} [options.embed_lyrics=true] - Whether to search and embed lyrics into audio file tags.
    * @param {boolean} [options.write_lrc=false] - Whether to save synchronized .lrc file alongside audio.
    * @param {string|boolean} [options.lyrics] - Custom lyrics string or boolean flag to trigger search.
    * @param {Record<string, string>} [options.metadata] - Additional ID3 metadata tags.
-   * @returns {Promise<{ filename: string, info: object, artist: string, title: string, lyrics: string|null, synced_lyrics: string|null, lrc_file: string|null }>}
+   * @returns {Promise<{ filename: string, info: object, artist: string, title: string, album: string, genre: string|null, year: string|null, lyrics: string|null, synced_lyrics: string|null, lrc_file: string|null }>}
    */
-  async extract_audio(url, options = {}) {
+  async extract_audio(urlOrInfo, options = {}) {
     const targetPath = options.outtmpl || '%(title)s.mp3';
     const isDirectAudioExt = targetPath.endsWith('.mp3') || targetPath.endsWith('.m4a') || targetPath.endsWith('.aac') || targetPath.endsWith('.opus') || targetPath.endsWith('.wav');
 
     // 1. Extract metadata
-    const info = await this.extract_info(url, { download: false });
+    const info = (urlOrInfo && typeof urlOrInfo === 'object')
+      ? urlOrInfo
+      : await this.extract_info(urlOrInfo, { download: false });
+    const url = info.webpage_url || (typeof urlOrInfo === 'string' ? urlOrInfo : '');
 
     // 2. Parse artist and title from metadata or title string
     let artist = options.artist || info.artist;
@@ -637,9 +665,27 @@ export class YoutubeDL {
     if (!title) {
       title = info.title || 'Unknown Title';
     }
-    const album = options.album || info.album || title;
+    let album = options.album || info.album || title;
+    let genre = options.genre || info.genre || null;
+    let year = options.year || options.date || null;
 
-    this.to_screen(`[extract_audio] Artist: ${artist} | Title: ${title}`);
+    // Search rich music metadata (genre, official album, release year)
+    if (options.fetch_metadata !== false) {
+      try {
+        const lyricsProvider = new LyricsProvider({ director: this.director });
+        const musicMeta = await lyricsProvider.fetchMusicMetadata({ artist, title, info });
+        if (musicMeta) {
+          if (!genre && musicMeta.genre) genre = musicMeta.genre;
+          if ((!album || album === title) && musicMeta.album) album = musicMeta.album;
+          if (!year && musicMeta.year) year = musicMeta.year;
+          this.to_screen(`[extract_audio] Music metadata found: Genre: ${genre || 'N/A'} | Album: ${album || 'N/A'} | Year: ${year || 'N/A'}`);
+        }
+      } catch (err) {
+        this.report_warning(`Could not fetch rich music metadata: ${err.message}`);
+      }
+    }
+
+    this.to_screen(`[extract_audio] Artist: ${artist} | Title: ${title}${genre ? ` | Genre: ${genre}` : ''}`);
 
     // 3. Download thumbnail for cover art embedding
     let tmpCoverFile = null;
@@ -692,6 +738,8 @@ export class YoutubeDL {
       artist,
       title,
       album,
+      ...(genre ? { genre } : {}),
+      ...(year ? { date: String(year) } : {}),
       ...options.metadata
     };
 
@@ -732,14 +780,17 @@ export class YoutubeDL {
           info,
           artist,
           title,
+          album,
+          genre: metadataTags.genre || null,
+          year: metadataTags.date || null,
           lyrics: lyricsResult?.plainLyrics || null,
           synced_lyrics: lyricsResult?.syncedLyrics || null,
           lrc_file: lrcFilePath
         };
       }
 
-      // Otherwise, download the best format with audio (e.g. format 18 MP4) to temporary file and extract audio
-      const bestWithAudio = this.select_format(info.formats, 'best') || info.formats?.[0];
+      // Otherwise, download the best format with audio (preferring audio-only for speed)
+      const bestWithAudio = this.select_format(info.formats, 'bestaudio') || this.select_format(info.formats, 'best') || info.formats?.[0];
       if (!bestWithAudio) {
         throw new Error(`No format with audio available for ${url}`);
       }
@@ -780,6 +831,9 @@ export class YoutubeDL {
         info,
         artist,
         title,
+        album,
+        genre: metadataTags.genre || null,
+        year: metadataTags.date || null,
         lyrics: lyricsResult?.plainLyrics || null,
         synced_lyrics: lyricsResult?.syncedLyrics || null,
         lrc_file: lrcFilePath

@@ -138,3 +138,57 @@ test('YoutubeDL get_lyrics method returns resolved lyrics', async () => {
   assert.ok(lyrics);
   assert.equal(lyrics.plainLyrics, 'Hello world lyrics');
 });
+
+test('LyricsProvider fetchMusicMetadata extracts genre, album, and year', async () => {
+  const provider = new LyricsProvider();
+
+  // Mock iTunes response
+  provider.director = {
+    async send(url) {
+      if (url.includes('itunes.apple.com/search')) {
+        return {
+          ok: true,
+          async json() {
+            return {
+              resultCount: 1,
+              results: [
+                {
+                  trackName: 'Mortals',
+                  artistName: 'Warriyo',
+                  collectionName: 'Mortals - Single',
+                  primaryGenreName: 'Dance',
+                  releaseDate: '2016-12-15T12:00:00Z'
+                }
+              ]
+            };
+          }
+        };
+      }
+      return { ok: false };
+    }
+  };
+
+  const meta = await provider.fetchMusicMetadata({ artist: 'Warriyo', title: 'Mortals' });
+  assert.ok(meta);
+  assert.equal(meta.genre, 'Dance');
+  assert.equal(meta.album, 'Mortals - Single');
+  assert.equal(meta.year, '2016');
+  assert.equal(meta.source, 'itunes');
+
+  // Fallback to video metadata when iTunes returns no result
+  provider.director = {
+    async send() {
+      return { ok: true, async json() { return { results: [] }; } };
+    }
+  };
+
+  const fallbackMeta = await provider.fetchMusicMetadata({
+    artist: 'Unknown',
+    title: 'Trap Beat',
+    info: { category: 'Music', keywords: ['Future Trap', 'Bass', 'Electronic'], upload_date: '20230510' }
+  });
+  assert.ok(fallbackMeta);
+  assert.equal(fallbackMeta.genre, 'Trap');
+  assert.equal(fallbackMeta.year, '2023');
+  assert.equal(fallbackMeta.source, 'video_metadata');
+});

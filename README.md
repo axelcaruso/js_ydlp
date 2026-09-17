@@ -5,7 +5,17 @@
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-green.svg)](https://nodejs.org)
 [![Build Tool](https://img.shields.io/badge/Build-Ninja_CLI-orange.svg)](build.cmd)
 
-A high-performance, 1:1 port of [yt-dlp](https://github.com/yt-dlp/yt-dlp) in pure **Vanilla JavaScript** (Node.js ESM, zero external runtime dependencies) designed for local library integration.
+A high-performance media extraction and downloading library in pure **Vanilla JavaScript** (Node.js ESM, zero external runtime dependencies) **based on the proven architecture of yt-dlp**, engineered specifically for the web's most critical, high-volume platforms (YouTube, TikTok, and direct media) with modular target builds and automatic music metadata enrichment (genre, album, year, cover art, synced lyrics).
+
+---
+
+## Architecture & Philosophy
+
+Unlike monolithic scrapers that bundle thousands of obsolete extractors, `js_ydlp` **is based on the battle-tested architecture of yt-dlp** but is laser-focused on today's dominant platforms:
+- **YouTube**: Full Innertube client cascade (ANDROID $\to$ IOS $\to$ WEB), V8 signature deciphering, and visitorData bot-challenge bypass.
+- **TikTok**: Sub-millisecond Proof-of-Work SHA-256 WAF challenge solving and pristine unwatermarked stream extraction.
+- **Generic & Direct Media**: High-speed chunked HTTP/HTTPS streaming with resume support.
+- **Modular Target Builds**: Compile lean, specialized bundles tailored to your specific platform needs (e.g. YouTube-only or TikTok-only) down to ~35–55 KiB.
 
 ---
 
@@ -212,9 +222,15 @@ await ydl.download(['https://example.com/banner.webp']);
 
 ---
 
-### 6. Extracting Music (MP3) with Embedded Cover Art, Artist & Lyrics (`yt-dlp -x --embed-thumbnail --add-metadata`)
+### 6. Extracting Music (MP3) with Automatic Genre, Album, Year, Cover Art & Lyrics
 
-Use `extract_audio()` to download audio, convert to MP3 at high quality (192 kbps), automatically extract the artist and song title, download the highest resolution thumbnail, search open lyrics databases (LRCLIB) with YouTube captions fallback, and embed them directly into the MP3 file using ID3v2 tags (`USLT` lyrics and `APIC` cover art):
+Use `extract_audio()` to download audio, convert to MP3 at high quality (192 kbps), automatically search public music databases (iTunes Search API) and video metadata for:
+- **Genre** (`Dance`, `Electronic`, `Rock`, `Hip-Hop`, `Trap`, `Pop`, etc.)
+- **Official Album** name
+- **Release Year**
+- **Artist & Song Title**
+- **High-resolution Cover Art** embedded as ID3v2 APIC attached picture
+- **Synchronized Lyrics** (`.lrc`) and static lyrics embedded into ID3v2 `USLT` tags
 
 ```javascript
 import { YoutubeDL } from './src/index.js';
@@ -223,18 +239,19 @@ const ydl = new YoutubeDL();
 const url = 'https://www.youtube.com/watch?v=yJg-Y5byMMw';
 
 const result = await ydl.extract_audio(url, {
-  outtmpl: 'downloads/Warriyo - Mortals.mp3', // Target output file
-  artist: 'Warriyo feat. Laura Brehm',        // Custom artist (optional, auto-parsed if omitted)
-  title: 'Mortals',                           // Custom title (optional, auto-parsed if omitted)
-  album: 'NCS Release',                       // Album tag (optional)
-  embed_thumbnail: true,                      // Download & embed thumbnail as ID3 album cover
+  outtmpl: 'downloads/%(title)s.mp3',
+  embed_thumbnail: true,                      // Download & embed cover art
   embed_lyrics: true,                         // Search & embed lyrics into MP3 ID3 tags
-  write_lrc: true                             // Save synchronized .lrc file alongside the MP3
+  write_lrc: true,                            // Save synchronized .lrc file
+  fetch_metadata: true                        // Auto-discover genre, album & release year
 });
 
-console.log('Saved to:', result.filename);
+console.log('Audio file saved to:', result.filename);
 console.log('Embedded Artist:', result.artist);
 console.log('Embedded Title:', result.title);
+console.log('Embedded Album:', result.album);
+console.log('Embedded Genre:', result.genre); // e.g. "Dance"
+console.log('Embedded Year:', result.year);   // e.g. "2016"
 console.log('Synchronized LRC file:', result.lrc_file);
 ```
 
@@ -288,50 +305,74 @@ await ydl.extract_audio(tiktokUrl, {
 
 ---
 
-## Cross-Platform Build System
+## Cross-Platform Build System & Modular Target Bundling
 
-`js_ydlp` includes a Ninja-style CLI build system that unifies all modules into a single minified bundle with **100% comment stripping and variable mangling**.
+`js_ydlp` includes a high-performance Ninja-style CLI build system that unifies all modules into a single minified bundle with **100% comment stripping and variable mangling**.
+
+You can compile a **full bundle** or a **lean, target-specific bundle** specialized for a single platform:
+
+### Build Targets
+
+| Target | Description | Output Files | Approximate Size |
+|---|---|---|---|
+| `all` (default) | Complete engine with YouTube, TikTok, and Generic extractors | `dist/js_ydlp.bundle.js`, `dist/js_ydlp.min.js` | ~61 KiB |
+| `youtube` | Specialized lean build for YouTube only | `dist/js_ydlp.youtube.min.js`, `dist/js_ydlp.min.js` | ~55 KiB |
+| `tiktok` | Specialized ultra-compact build for TikTok only | `dist/js_ydlp.tiktok.min.js`, `dist/js_ydlp.min.js` | ~53 KiB |
 
 ### Running the Build
 
-#### Windows:
+#### 1. Full Build (Default):
 ```cmd
+# Windows:
 build.cmd build
-```
-Or specify a release tag:
-```cmd
-build.cmd build 1.0.2
+
+# Linux / macOS:
+./build.sh build
 ```
 
-#### Linux / macOS:
-```bash
-chmod +x build.sh
-./build.sh build 1.0.2
+#### 2. YouTube-Only Build:
+```cmd
+build.cmd build youtube
+# Or specify version:
+build.cmd build youtube 1.0.7
+```
+
+#### 3. TikTok-Only Build:
+```cmd
+build.cmd build tiktok
+# Or specify version:
+build.cmd build tiktok 1.0.7
+```
+
+#### 4. Explicit Options:
+```cmd
+build.cmd build --target youtube --release 1.0.7 --skip-tests
 ```
 
 ### Build Pipeline Stages:
-1. **[1/7] Pre-flight Test Suite**: Runs all 41 unit and integration tests (`node --test`).
-2. **[2/7] Dependency Graph Scanner**: Discovers all source files in `src/`.
-3. **[3/7] Symbol Resolution**: Inlines dependencies and removes circular references.
+1. **[1/7] Pre-flight Test Suite**: Runs all 42 unit and integration tests (`node --test`).
+2. **[2/7] Dependency Graph Scanner**: Discovers and filters source modules matching the selected target.
+3. **[3/7] Symbol Resolution**: Inlines dependencies and resolves target-specific extractor registries.
 4. **[4/7] Ninja-Style Linking**:
    ```text
-   [linking] [1/29] src/downloader/common.js
-   [linking] [2/29] src/downloader/http.js
+   [linking] [1/28] src/downloader/common.js
    ...
-   [linking] [29/29] src/YoutubeDL.js
+   [linking] [28/28] src/YoutubeDL.js
    ```
 5. **[5/7] Terser Minification**: Shortens local identifiers, eliminates dead code, and strips all comments except the Apache 2.0 + AI statement header.
 6. **[6/7] Post-Linking Integrity Verification**:
-   - `[1/5]` Verifies public library exports.
-   - `[2/5]` Verifies `YoutubeDL` instantiation and template rendering.
-   - `[3/5]` Verifies `traverse_obj` and utility functions.
+   - `[1/4]` Verifies public library exports for the active target.
+   - `[2/4]` Verifies `YoutubeDL` instantiation and template rendering.
+   - `[3/4]` Verifies `traverse_obj` and utility functions.
    - `[4/5]` Verifies complete comment removal and code density.
    - `[5/5]` **Obligatory separate download test**: Lists resolutions/codecs, selects streams, and downloads video and music separately from the linked bundle.
 7. **[7/7] Release Cache Tracking**: Updates the tracked release list in `BUILDS`.
 
 ### Output Artifacts:
-- `dist/js_ydlp.bundle.js` — Unified, unminified single-file bundle.
-- `dist/js_ydlp.min.js` — Minified, mangled single-file library (~43 KiB).
+- `dist/js_ydlp.bundle.js` — Full unminified single-file bundle.
+- `dist/js_ydlp.min.js` — Minified, mangled single-file library ready for import.
+- `dist/js_ydlp.youtube.min.js` — YouTube-specialized minified bundle.
+- `dist/js_ydlp.tiktok.min.js` — TikTok-specialized minified bundle.
 - `BUILDS` — Comma-separated list of release versions (tracked in Git).
 
 ---

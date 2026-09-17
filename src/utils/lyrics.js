@@ -240,4 +240,88 @@ export class LyricsProvider {
 
     return null;
   }
+
+  /**
+   * Fetches rich track metadata (genre, release year, album, artist, title)
+   * from public music databases (iTunes Search API) with video metadata fallbacks.
+   *
+   * @param {object} params
+   * @param {string} params.artist - Artist name.
+   * @param {string} params.title - Track title.
+   * @param {object} [params.info={}] - Optional media info dict for fallbacks.
+   * @returns {Promise<{ genre: string|null, year: string|null, releaseDate: string|null, album: string|null, artist: string, title: string, source: string }|null>}
+   */
+  async fetchMusicMetadata({ artist, title, info = {} }) {
+    const cleanArtist = this.cleanTrackName(artist);
+    const cleanTitle = this.cleanTrackName(title);
+    const query = `${cleanArtist} ${cleanTitle}`.trim();
+
+    if (!query) return null;
+
+    // 1. Query iTunes Search API (free, official, accurate genre and release dates)
+    try {
+      const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=3`;
+      const res = await this.director.send(itunesUrl, {
+        headers: { 'User-Agent': 'js_ydlp/1.0 (+https://github.com/axelcaruso/js_ydlp)' }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.results) && data.results.length > 0) {
+          const item = data.results[0];
+          const releaseDate = item.releaseDate || null;
+          let year = null;
+          if (releaseDate) {
+            year = String(new Date(releaseDate).getUTCFullYear());
+          }
+
+          return {
+            genre: item.primaryGenreName || null,
+            album: item.collectionName || null,
+            year,
+            releaseDate,
+            artist: item.artistName || artist,
+            title: item.trackName || title,
+            source: 'itunes'
+          };
+        }
+      }
+    } catch {}
+
+    // 2. Fallback: Check YouTube category or keywords for music genre
+    let fallbackGenre = null;
+    if (info.category && info.category !== 'Music') {
+      fallbackGenre = info.category;
+    }
+    if (!fallbackGenre && Array.isArray(info.keywords)) {
+      const genreKeywords = [
+        'electronic', 'dance', 'trap', 'future trap', 'hip hop', 'rap', 'rock',
+        'pop', 'jazz', 'lo-fi', 'house', 'dubstep', 'ambient', 'indie', 'classical'
+      ];
+      for (const kw of info.keywords) {
+        const kwLower = String(kw).toLowerCase();
+        const found = genreKeywords.find((g) => kwLower.includes(g));
+        if (found) {
+          fallbackGenre = found.charAt(0).toUpperCase() + found.slice(1);
+          break;
+        }
+      }
+    }
+
+    if (fallbackGenre) {
+      return {
+        genre: fallbackGenre,
+        album: info.album || null,
+        year: info.upload_date ? info.upload_date.slice(0, 4) : null,
+        releaseDate: info.upload_date || null,
+        artist,
+        title,
+        source: 'video_metadata'
+      };
+    }
+
+    return null;
+  }
 }
+
+export const MusicMetadataProvider = LyricsProvider;

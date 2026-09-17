@@ -52,14 +52,11 @@ async function main() {
   const safeTitle = sanitize_filename(info.title || 'Warriyo - Mortals');
   const targetMp3 = path.join(desktopDir, `${safeTitle}.mp3`);
 
-  console.log('\n--- Extracting and Saving Audio to Desktop ---');
+  console.log('\n--- Extracting and Saving Audio to Desktop with Rich Metadata ---');
   console.log('Destination:', targetMp3);
 
-  const result = await ydl.extract_audio(url, {
+  const result = await ydl.extract_audio(info, {
     outtmpl: targetMp3,
-    artist: 'Warriyo feat. Laura Brehm',
-    title: 'Mortals',
-    album: 'NCS Release',
     embed_thumbnail: true,
     embed_lyrics: true,
     write_lrc: true
@@ -69,6 +66,9 @@ async function main() {
   console.log('Audio file saved to Desktop:', result.filename);
   console.log('Embedded Artist:', result.artist);
   console.log('Embedded Title:', result.title);
+  console.log('Embedded Album:', result.album);
+  console.log('Embedded Genre:', result.genre);
+  console.log('Embedded Year:', result.year);
   if (result.lyrics) {
     console.log('\nEmbedded Lyrics (first lines):');
     console.log(result.lyrics.split('\n').slice(0, 4).join('\n') + '\n...');

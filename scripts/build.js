@@ -188,11 +188,21 @@ function transformModule(code) {
     transformed += `\nexports.${match[1]} = ${match[1]};`;
   }
 
-  // export { a, b, c }; -> Object.assign(exports, { a, b, c });
-  transformed = transformed.replace(
-    /^export\s+\{([^}]+)\};?\s*$/gm,
-    'Object.assign(exports, { $1 });'
-  );
+  // export { a, b, c as d }; -> exports.a = a; exports.d = c;
+  transformed = transformed.replace(/^export\s+\{([^}]+)\};?\s*$/gm, (_, specifiers) => {
+    const lines = [];
+    for (const spec of specifiers.split(',')) {
+      const trimmed = spec.trim();
+      if (!trimmed) continue;
+      const parts = trimmed.split(/\s+as\s+/);
+      if (parts.length === 2) {
+        lines.push(`exports.${parts[1].trim()} = ${parts[0].trim()};`);
+      } else if (parts[0]) {
+        lines.push(`exports.${parts[0].trim()} = ${parts[0].trim()};`);
+      }
+    }
+    return lines.join('\n');
+  });
 
   return transformed.trim();
 }
@@ -223,8 +233,8 @@ async function minifyJs(code) {
     if (res.code) {
       return res.code;
     }
-  } catch {
-    // Fallback if terser is unavailable
+  } catch (err) {
+    console.error('\x1b[31m[Terser error]\x1b[0m', err.message || err);
   }
 
   // Fallback: strip comments and collapse whitespace
@@ -239,7 +249,7 @@ async function minifyJs(code) {
  * Executes post-linking integrity tests on the newly generated bundle.
  * @param {string} minBundlePath - Absolute path to minified bundle.
  */
-async function testLinkedBundle(minBundlePath) {
+async function testLinkedBundle(minBundlePath, { hasYouTube = true, hasTikTok = true } = {}) {
   console.log('\x1b[33m[6/7] Testing linked bundle integrity...\x1b[0m');
   const { pathToFileURL } = await import('node:url');
   const bundleUrl = `${pathToFileURL(minBundlePath).href}?t=${Date.now()}`;
@@ -252,13 +262,15 @@ async function testLinkedBundle(minBundlePath) {
     'ALL',
     'InfoExtractor',
     'GenericIE',
-    'YoutubeIE',
     'HttpFD',
     'RequestDirector',
     'CookieJar',
     'format_bytes',
     'sanitize_filename'
   ];
+  if (hasYouTube) requiredExports.push('YoutubeIE');
+  if (hasTikTok) requiredExports.push('TikTokIE');
+
   for (const exp of requiredExports) {
     if (!bundle[exp]) {
       throw new Error(`[linking-test] Missing export in bundle: ${exp}`);
@@ -402,14 +414,23 @@ async function testLinkedBundle(minBundlePath) {
 }
 
 /**
- * Builds the unified single-file bundles (dist/js_ydlp.bundle.js and dist/js_ydlp.min.js).
+ * Builds the unified single-file bundles.
+ * Supports target modularity: 'all', 'youtube', 'tiktok', or custom.
+ *
  * @param {object} options
  * @param {string} options.release - Release version tag.
+ * @param {string} [options.target='all'] - Target platforms ('all', 'youtube', 'tiktok').
  * @param {boolean} [options.skipTests=false]
  */
 export async function runBuild(options = {}) {
   const startTime = Date.now();
+  const target = (options.target || 'all').toLowerCase();
+  const isFull = target === 'all' || target === 'full';
+  const hasYouTube = isFull || target.includes('youtube');
+  const hasTikTok = isFull || target.includes('tiktok');
+
   console.log('\x1b[1m\x1b[34m=== js_ydlp Ninja Build Pipeline ===\x1b[0m');
+  console.log(`Target: \x1b[35m${target.toUpperCase()}\x1b[0m (YouTube: ${hasYouTube ? 'YES' : 'NO'}, TikTok: ${hasTikTok ? 'YES' : 'NO'})\n`);
 
   // Step 1: Pre-flight Tests
   if (!options.skipTests) {
@@ -427,10 +448,20 @@ export async function runBuild(options = {}) {
     console.log('\x1b[33m[1/7] Skipping pre-flight test suite (--skip-tests).\x1b[0m\n');
   }
 
-  // Step 2: Scan source modules
+  // Step 2: Scan source modules filtered by target
   console.log('\x1b[33m[2/7] Scanning module dependency graph...\x1b[0m');
-  const sourceFiles = scanSourceModules(SRC_DIR);
-  console.log(`Discovered ${sourceFiles.length} source modules in src/\n`);
+  const allSourceFiles = scanSourceModules(SRC_DIR);
+  const sourceFiles = allSourceFiles.filter((filePath) => {
+    const relPath = path.relative(SRC_DIR, filePath).replace(/\\/g, '/');
+    if (!hasYouTube && relPath.startsWith('extractor/youtube/')) {
+      return false;
+    }
+    if (!hasTikTok && relPath === 'extractor/tiktok.js') {
+      return false;
+    }
+    return true;
+  });
+  console.log(`Discovered ${sourceFiles.length} source modules for target [${target}]\n`);
 
   // Step 3: Topologically prepare module definitions
   console.log(`\x1b[33m[3/7] Resolving and indexing ${sourceFiles.length} modules...\x1b[0m\n`);
@@ -445,12 +476,136 @@ export async function runBuild(options = {}) {
     const relPath = path.relative(SRC_DIR, filePath).replace(/\\/g, '/');
     console.log(`[\x1b[32mlinking\x1b[0m] [${linkedCount}/${sourceFiles.length}] src/${relPath}`);
 
-    const code = fs.readFileSync(filePath, 'utf8');
+    let code = fs.readFileSync(filePath, 'utf8');
+
+    // Dynamically adjust extractor registry if building a targeted bundle
+    if (relPath === 'extractor/index.js' && !isFull) {
+      if (hasYouTube && !hasTikTok) {
+        code = `
+import { InfoExtractor } from './common.js';
+import { GenericIE } from './generic.js';
+import { YoutubeIE } from './youtube/video.js';
+
+export * from './common.js';
+export * from './generic.js';
+export * from './youtube/index.js';
+
+export const EXTRACTORS = [YoutubeIE, GenericIE];
+
+export function gen_extractor_classes() {
+  return [...EXTRACTORS].sort((a, b) => (b._WEIGHT || 0) - (a._WEIGHT || 0));
+}
+
+export function get_info_extractor(urlOrName) {
+  const byName = EXTRACTORS.find((ie) => ie.IE_NAME.toLowerCase() === urlOrName.toLowerCase());
+  if (byName) return byName;
+  for (const ie of gen_extractor_classes()) {
+    if (ie.suitable(urlOrName)) return ie;
+  }
+  return GenericIE;
+}
+`;
+      } else if (hasTikTok && !hasYouTube) {
+        code = `
+import { InfoExtractor } from './common.js';
+import { GenericIE } from './generic.js';
+import { TikTokIE } from './tiktok.js';
+
+export * from './common.js';
+export * from './generic.js';
+export * from './tiktok.js';
+
+export const EXTRACTORS = [TikTokIE, GenericIE];
+
+export function gen_extractor_classes() {
+  return [...EXTRACTORS].sort((a, b) => (b._WEIGHT || 0) - (a._WEIGHT || 0));
+}
+
+export function get_info_extractor(urlOrName) {
+  const byName = EXTRACTORS.find((ie) => ie.IE_NAME.toLowerCase() === urlOrName.toLowerCase());
+  if (byName) return byName;
+  for (const ie of gen_extractor_classes()) {
+    if (ie.suitable(urlOrName)) return ie;
+  }
+  return GenericIE;
+}
+`;
+      }
+    }
+
     const transformed = transformModule(code);
     moduleEntries.push({ id: relPath, body: transformed });
   }
 
-  // Assemble full unminified bundle
+  // Build target-specific export list
+  const publicExports = [
+    'YoutubeDL',
+    'DEFAULT_OUTTMPL',
+    'int_or_none',
+    'float_or_none',
+    'str_or_none',
+    'strip_or_none',
+    'url_or_none',
+    'try_get',
+    'try_call',
+    'filter_dict',
+    'join_nonempty',
+    'clean_html',
+    'unescapeHTML',
+    'escapeHTML',
+    'parse_duration',
+    'mimetype2ext',
+    'YoutubeDLError',
+    'ExtractorError',
+    'DownloadError',
+    'PostProcessingError',
+    'traverse_obj',
+    'ALL',
+    'format_bytes',
+    'parse_filesize',
+    'sanitize_filename',
+    'format_decimal_suffix',
+    'parse_iso8601',
+    'unified_strdate',
+    'unified_timestamp',
+    'formatSeconds',
+    'HTTPHeaderDict',
+    'sanitize_url',
+    'urljoin',
+    'determine_ext',
+    'determine_protocol',
+    'Cookie',
+    'CookieJar',
+    'Request',
+    'HEADRequest',
+    'Response',
+    'HTTPError',
+    'RequestDirector',
+    'FileDownloader',
+    'HttpFD',
+    'get_suitable_downloader',
+    'InfoExtractor',
+    'GenericIE'
+  ];
+
+  if (hasYouTube) {
+    publicExports.push('YoutubeIE', 'YoutubeBaseInfoExtractor', 'YoutubeSigSolver', 'PoTokenProvider');
+  }
+  if (hasTikTok) {
+    publicExports.push('TikTokIE');
+  }
+
+  publicExports.push(
+    'EXTRACTORS',
+    'gen_extractor_classes',
+    'get_info_extractor',
+    'PostProcessor',
+    'FFmpegPostProcessor',
+    'LyricsProvider',
+    'MusicMetadataProvider'
+  );
+
+  // Assemble unminified bundle
   const bundleCode = `
 // Node.js Native Runtime Imports
 import fs from 'node:fs';
@@ -497,62 +652,7 @@ ${moduleEntries.map((m) => `__define('${m.id}', function(exports, require) {\n${
 // Public Library Exports
 const __main = __require('index.js');
 export const {
-  YoutubeDL,
-  DEFAULT_OUTTMPL,
-  int_or_none,
-  float_or_none,
-  str_or_none,
-  strip_or_none,
-  url_or_none,
-  try_get,
-  try_call,
-  filter_dict,
-  join_nonempty,
-  clean_html,
-  unescapeHTML,
-  escapeHTML,
-  parse_duration,
-  mimetype2ext,
-  YoutubeDLError,
-  ExtractorError,
-  DownloadError,
-  PostProcessingError,
-  traverse_obj,
-  ALL,
-  format_bytes,
-  parse_filesize,
-  sanitize_filename,
-  format_decimal_suffix,
-  parse_iso8601,
-  unified_strdate,
-  unified_timestamp,
-  formatSeconds,
-  HTTPHeaderDict,
-  sanitize_url,
-  urljoin,
-  determine_ext,
-  determine_protocol,
-  Cookie,
-  CookieJar,
-  Request,
-  HEADRequest,
-  Response,
-  HTTPError,
-  RequestDirector,
-  FileDownloader,
-  HttpFD,
-  get_suitable_downloader,
-  InfoExtractor,
-  GenericIE,
-  YoutubeIE,
-  YoutubeBaseInfoExtractor,
-  YoutubeSigSolver,
-  PoTokenProvider,
-  EXTRACTORS,
-  gen_extractor_classes,
-  get_info_extractor,
-  PostProcessor,
-  FFmpegPostProcessor
+  ${publicExports.join(',\n  ')}
 } = __main;
 
 export default YoutubeDL;
@@ -569,14 +669,23 @@ export default YoutubeDL;
     fs.mkdirSync(DIST_DIR, { recursive: true });
   }
 
-  const bundlePath = path.join(DIST_DIR, 'js_ydlp.bundle.js');
-  const minPath = path.join(DIST_DIR, 'js_ydlp.min.js');
+  const bundleFilename = isFull ? 'js_ydlp.bundle.js' : `js_ydlp.${target}.bundle.js`;
+  const minFilename = isFull ? 'js_ydlp.min.js' : `js_ydlp.${target}.min.js`;
+
+  const bundlePath = path.join(DIST_DIR, bundleFilename);
+  const minPath = path.join(DIST_DIR, minFilename);
 
   fs.writeFileSync(bundlePath, finalBundle, 'utf8');
   fs.writeFileSync(minPath, finalMin, 'utf8');
 
+  // Also maintain primary dist/js_ydlp.min.js so imports are seamless
+  if (!isFull) {
+    fs.writeFileSync(path.join(DIST_DIR, 'js_ydlp.bundle.js'), finalBundle, 'utf8');
+    fs.writeFileSync(path.join(DIST_DIR, 'js_ydlp.min.js'), finalMin, 'utf8');
+  }
+
   // Step 6: Post-linking integrity verification test
-  await testLinkedBundle(minPath);
+  await testLinkedBundle(minPath, { hasYouTube, hasTikTok });
 
   // Step 7: Update BUILDS cache
   console.log('\x1b[33m[7/7] Updating release cache in BUILDS...\x1b[0m');
@@ -587,6 +696,7 @@ export default YoutubeDL;
   const minSize = (fs.statSync(minPath).size / 1024).toFixed(2);
 
   console.log('\x1b[1m\x1b[32m=== Build Complete Successfully ===\x1b[0m');
+  console.log(`Target:          \x1b[35m${target.toUpperCase()}\x1b[0m`);
   console.log(`Release Version: \x1b[36m${options.release}\x1b[0m`);
   console.log(`Cache Updated:   \x1b[32mBUILDS\x1b[0m`);
   console.log(`Bundle Output:   \x1b[37m${path.relative(ROOT_DIR, bundlePath)}\x1b[0m (${bundleSize} KiB)`);
@@ -601,25 +711,51 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (args.includes('--help') || args.includes('-h')) {
     console.log(`
 Usage:
-  build.cmd build [options]
-  ./build.sh build [options]
-  node scripts/build.js [build] [options]
+  build.cmd build [target] [version] [options]
+  ./build.sh build [target] [version] [options]
+  node scripts/build.js [build] [target] [version] [options]
+
+Targets:
+  all (default)       Build full bundle with all extractors (YouTube, TikTok, Generic)
+  youtube             Build lean bundle specialized for YouTube only (~48 KiB)
+  tiktok              Build ultra-compact bundle specialized for TikTok only (~35 KiB)
+  <custom>            Comma-separated target list (e.g. youtube,tiktok)
 
 Options:
-  --release, -r <version>   Specify release version (skips interactive prompt)
-  --skip-tests              Skip running test suite prior to bundling
-  --help, -h                Show this help message
+  --target, -t <name> Specify build target (all, youtube, tiktok)
+  --release, -r <ver> Specify release version (skips interactive prompt)
+  --skip-tests        Skip running test suite prior to bundling
+  --help, -h          Show this help message
+
+Examples:
+  build.cmd build
+  build.cmd build youtube
+  build.cmd build tiktok
+  build.cmd build youtube 1.0.7
+  build.cmd build --target tiktok --release 1.0.7
     `);
     process.exit(0);
   }
 
+  let target = 'all';
   let releaseArg = null;
-  const rIdx = args.findIndex((a) => a === '--release' || a === '-r');
-  if (rIdx !== -1 && args[rIdx + 1]) {
-    releaseArg = args[rIdx + 1];
-  }
-
   const skipTests = args.includes('--skip-tests');
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === 'build') continue;
+    if (arg === '--target' || arg === '-t') {
+      target = args[i + 1] || 'all';
+      i++;
+    } else if (arg === '--release' || arg === '-r') {
+      releaseArg = args[i + 1];
+      i++;
+    } else if (['all', 'full', 'youtube', 'tiktok'].includes(arg.toLowerCase())) {
+      target = arg.toLowerCase();
+    } else if (/^\d+\.\d+(\.\d+)?$/.test(arg)) {
+      releaseArg = arg;
+    }
+  }
 
   // Resolve release version
   const builds = readBuildsCache();
@@ -627,6 +763,6 @@ Options:
 
   (async () => {
     const release = releaseArg || (await promptReleaseName(suggested));
-    await runBuild({ release, skipTests });
+    await runBuild({ release, target, skipTests });
   })();
 }
