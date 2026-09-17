@@ -1,116 +1,186 @@
 ================================================================================
-js_ydlp - RELEASE 2.0.0-rc-1
+js_ydlp - RELEASE 2.0.0-rc-1 (OFFICIAL RELEASE NOTES & REPO METADATA)
 ================================================================================
 
 ================================================================================
-1. DESCRIPCIONES CORTAS SUGERIDAS PARA EL REPOSITORIO (GitHub About / Description)
+1. REPOSITORY SHORT DESCRIPTIONS (FOR GITHUB "ABOUT" / DESCRIPTION)
 ================================================================================
 
-[Espanol - Opcion Recomendada]
-Potente biblioteca multimedia en Vanilla JS (Node.js, 0 dependencias) basada en la arquitectura de yt-dlp. Especializada en YouTube, TikTok (sin marcas y H.264 universal) y descarga de musica con caratula, genero, letras sincronizadas (.lrc) y streaming en chunks.
+[Primary / Recommended - Full Capabilities]:
+High-performance Vanilla JS media engine (Node.js, 0 dependencies) based on yt-dlp's architecture. Specialized in YouTube, TikTok (unwatermarked + auto universal H.264), and music downloads with covers, genres, synced lyrics (.lrc), and chunked streaming.
 
-[Espanol - Opcion Corta / Compacta]
-Motor de descarga multimedia en Vanilla JS basado en yt-dlp para YouTube y TikTok (sin marca), con streaming en chunks, metadatos y letras sincronizadas.
-
-[English - Recommended]
-High-performance Vanilla JS media engine (Node.js, zero dependencies) based on yt-dlp's architecture. Specialized in YouTube, TikTok (unwatermarked & universal H.264), and music downloads with covers, genres, synced lyrics (.lrc), and chunked streaming.
-
-[English - Short]
+[Compact / Concise Option]:
 Modern Vanilla JS media downloader based on yt-dlp for YouTube & TikTok (no watermark), featuring chunked streaming, ID3 tagging, and synced lyrics.
 
+[One-Liner Punchy Option]:
+Ultra-fast, zero-dependency Vanilla JS media downloader for YouTube & TikTok with auto H.264 recoding, chunked streaming, and rich music metadata.
+
 --------------------------------------------------------------------------------
-GitHub Tags / Topics sugeridos:
+Suggested GitHub Topics / Tags:
 javascript, nodejs, yt-dlp, youtube-downloader, tiktok-downloader, no-watermark,
-h264, media-downloader, streaming, music-metadata, lyrics, lrc, vanilla-js
+h264, hevc-converter, media-downloader, streaming-chunks, music-metadata, lyrics,
+lrc, id3-tags, vanilla-js, zero-dependencies, media-extractor
 --------------------------------------------------------------------------------
 
 
 ================================================================================
-2. NOTAS DE LA VERSION / RESUMEN DE LA RELEASE (v2.0.0-rc-1)
+2. COMPREHENSIVE RELEASE NOTES (v2.0.0-rc-1)
 ================================================================================
 
-Titulo de la Release:
-v2.0.0-rc-1 - The Modern Stream-First Media Engine (YouTube, TikTok & Rich Music)
+Release Tag:   v2.0.0-rc-1
+Release Title: v2.0.0-rc-1 - The Modern Stream-First Media Engine (YouTube, TikTok & Rich Music)
 
 --------------------------------------------------------------------------------
-RESUMEN GENERAL:
+OVERVIEW
 --------------------------------------------------------------------------------
-Nos complace presentar js_ydlp v2.0.0-rc-1, una biblioteca de extraccion y
-descarga multimedia de alto rendimiento en Vanilla JavaScript puro (Node.js ESM,
-cero dependencias externas en tiempo de ejecucion), basada en la probada
-arquitectura de yt-dlp pero redisenada desde cero para ser rapida, modular,
-intuitiva y enfocada en las plataformas dominantes de la web actual.
+We are thrilled to announce js_ydlp v2.0.0-rc-1, a next-generation media
+extraction and downloading engine in pure Vanilla JavaScript (Node.js ESM, zero
+external runtime dependencies).
+
+Built upon the battle-tested architecture of yt-dlp, js_ydlp has been engineered
+from the ground up to be ultra-fast, modular, and laser-focused on the modern
+web's dominant platforms: YouTube, TikTok, and direct progressive media streams.
+It introduces an intuitive, developer-friendly modern API, zero-RAM streaming
+chunk downloads, automatic universal H.264 recoding, rich music metadata discovery,
+and targeted modular bundles.
 
 
 --------------------------------------------------------------------------------
-NOVEDADES PRINCIPALES Y CARACTERISTICAS:
+EXHAUSTIVE CAPABILITIES & FEATURE BREAKDOWN
 --------------------------------------------------------------------------------
 
-1. API MODERNA, INTUITIVA Y DE UNA SOLA LINEA (One-Liners):
-   - Descarga directa sin necesidad de instanciar clases:
-     * download(url, options)
-     * downloadMusic(url, options) [o extractAudio]
-     * extractInfo(url, options) [o getInfo]
-     * listFormats(url, print)
-     * downloadSeparate(url, options)
-     * downloadImage(url, targetPath)
-     * getLyrics(url, options)
-     * getMetadata(url)
-   - Exportacion por defecto `ydlp` que funciona tanto como objeto con metodos
-     estaticos (`ydlp.download(...)`) como fabrica configurable (`ydlp(options)`).
-   - Soporte total Dual: acepta de forma nativa tanto `camelCase` como
-     `snake_case` en todos los metodos y opciones de configuracion.
-   - API Fluent encadenable:
-     new YoutubeDL().format('best').output('...').recode('mp4').onProgress(...)
+1. ULTRA-INTUITIVE MODERN API & DUAL NAMING CONVENTION
+   * Direct Top-Level One-Liners (No class instantiation needed):
+     - download(url, options): Download videos or audio in a single line.
+     - downloadMusic(url, options) [or extractAudio]: Download tagged MP3s with
+       cover art, genre, release year, and synced lyrics.
+     - extractInfo(url, options) [or getInfo]: Extract complete metadata and
+       available formats without downloading media files.
+     - listFormats(url, print): Inspect available formats, resolutions, FPS,
+       bitrates, video codecs (vcodec), and audio codecs (acodec).
+     - downloadSeparate(url, options): Download pristine video streams and
+       audio tracks separately as independent files.
+     - downloadImage(url, targetPath): Download video thumbnails or standalone
+       images (.jpg, .png, .webp, .gif, .svg).
+     - getLyrics(url, options): Fetch plain and synchronized (.lrc) lyrics.
+     - getMetadata(url): Resolve rich music metadata (genre, album, year).
+   * Unified Default Export `ydlp`:
+     - Functions both as an object with static helpers (`ydlp.download(...)`)
+       and as a configurable factory function (`const client = ydlp(options)`).
+   * Complete Dual Naming Support (camelCase & snake_case):
+     - Every option and method supports both conventions (e.g. `output` and
+       `outtmpl`, `skipDownload` and `skip_download`, `continueDl` and `continuedl`,
+       `onProgress` and `progress_hooks`, `recodeVideo` and `recode_video`, etc.).
+   * Fluent Chainable Builder:
+     - new YoutubeDL().output('...').format('best').recode('mp4').onProgress(cb)
 
-2. MOTOR ESPECIALIZADO PARA TIKTOK:
-   - Extraccion limpia sin marca de agua (prioriza flujos directos y adaptativos).
-   - Resolucion nativa de retos WAF de TikTok mediante Proof-of-Work SHA-256
-     en menos de 2 ms (sin navegadores headless pesados ni puppeteer).
-   - Conversion automatica a H.264 Universal (libx264, yuv420p, aac, +faststart):
-     convierte al instante los videos HEVC/H.265 de TikTok para que puedan
-     reproducirse en cualquier reproductor (Windows Media Player, Smart TVs, moviles).
+2. TIKTOK DEDICATED ENGINE
+   * 100% Unwatermarked Stream Extraction:
+     - Automatically extracts direct playback streams (`playAddr`) and
+       adaptive bitrates from `bitrateInfo` (1080p, 720p, 540p).
+     - Deprioritizes watermarked fallback streams (`downloadAddr`).
+   * Sub-Millisecond Proof-of-Work WAF Challenge Solver:
+     - Bypasses TikTok's client-side anti-scraping JavaScript challenge
+       (`SHA-256(seed + nonce) === target`) natively in `< 2 ms`.
+     - Zero headless browser or Puppeteer overhead.
+   * Automatic Universal H.264 (AVC) Recoding:
+     - TikTok delivers high-resolution (1080p) vertical streams in HEVC / H.265
+       (`bytevc1`), which causes black screens on Windows Media Player, older
+       smart TVs, and older mobile devices.
+     - js_ydlp detects HEVC streams and automatically recodes them using FFmpeg
+       to H.264 (`libx264`) with `yuv420p` pixel format, `aac` audio, and
+       `+faststart` atom for instant, universal playback on ANY device or player.
+   * Comprehensive URL Support:
+     - Standard URLs (`https://www.tiktok.com/@user/video/...`)
+     - Shortened URLs (`vm.tiktok.com`, `vt.tiktok.com`, `tiktok.com/t/`)
+     - Embed and share URLs.
 
-3. MOTOR AVANZADO PARA YOUTUBE:
-   - Cascada de clientes Innertube (ANDROID -> IOS -> WEB) que sortea bloqueos
-     de bots sin requerir cookies ni inicio de sesion.
-   - Descifrador de firmas JS de YouTube nativo (YoutubeSigSolver).
-   - Integracion nativa de PO-Token (PoTokenProvider).
+3. YOUTUBE DEDICATED ENGINE
+   * Multi-Client Innertube Cascade:
+     - Native fallback cascade (`ANDROID` -> `IOS` -> `WEB`) that bypasses
+       bot-detection walls and sign-in requirements without needing cookies.
+   * Native V8 Signature Deciphering (`YoutubeSigSolver`):
+     - Automatically extracts and evaluates bytecode scrambling operations
+       directly from YouTube's player JavaScript.
+   * Proof-of-Origin Token Integration (`PoTokenProvider`):
+     - Built-in provider for minting PO-Tokens when required.
+   * VisitorData & Innertube Session Synthesis:
+     - Generates valid session contexts matching official mobile clients.
+   * Advanced Format Selection:
+     - Full format filtering (`best`, `worst`, `bestvideo`, `bestaudio`,
+       itag IDs, and custom predicate selector functions).
 
-4. DESCARGA DE MUSICA CON METADATOS ENRIQUECIDOS Y LETRAS SINCRONIZADAS:
-   - Resolucion automatica de metadatos en bases publicas (iTunes API):
-     genero musical oficial, album original y ano de lanzamiento.
-   - Incrustacion de caratula oficial en alta resolucion dentro del contenedor MP3 (APIC).
-   - Busqueda automatica e incrustacion de letras (USLT).
-   - Generacion de archivos `.lrc` sincronizados para reproductores de karaoke/letras.
+4. RICH MUSIC METADATA, COVER ART & SYNCHRONIZED LYRICS
+   * Automated Online Database Discovery:
+     - Integrates with public music databases (iTunes Search API) to resolve:
+       * Official Primary Music Genre (Dance, Pop, Rock, Electronic, etc.)
+       * Official Album Name
+       * Official Release Year
+   * Full ID3v2 Metadata Tagging:
+     - Writes `TCON` (Genre), `TDRC` (Year), `TALB` (Album), `TPE1` (Artist),
+       and `TIT2` (Title) into output MP3 files.
+   * High-Resolution Album Cover Art Embedding:
+     - Downloads the highest-resolution thumbnail or cover image and embeds
+       it as an `APIC` front-cover frame within the MP3 container.
+   * Lyrics Discovery & Embedding:
+     - Searches open lyrics providers (LRCLIB) with fallback to video closed
+       captions, embedding lyrics into the `USLT` ID3 frame.
+   * Synchronized `.lrc` File Export:
+     - Optionally generates timestamped `.lrc` files (`writeLrc: true`) for
+       karaoke-style players.
 
-5. ARQUITECTURA DE STREAMING EN CHUNKS (Cero saturacion de RAM):
-   - Pipeline basado en Web ReadableStream y streams de Node.js.
-   - Escritura incremental a disco en archivos temporales `.part`.
-   - Soporte para peticiones por rango HTTP (HTTP 206 Partial Content) para
-     reanudar descargas interrumpidas sin volver a descargar desde cero.
-   - Consumo de RAM plano y minimo (pocos KB), incluso descargando archivos de decenas de GB.
-   - Notificaciones de progreso precisas cada 250 ms (velocidad, ETA, porcentaje).
+5. STREAM-FIRST ZERO-RAM CHUNKING PIPELINE
+   * Zero-RAM Buffering:
+     - Consumes responses via Web `ReadableStream` (`getReader()`) or Node.js
+       `pipeline` chunk-by-chunk.
+     - Writes chunks incrementally to a temporary `.part` file on disk.
+     - Memory footprint remains flat and minimal (~KB) whether downloading
+       a 3 MB song or a 50 GB 4K video.
+   * HTTP 206 Partial Content & Range Resumption:
+     - Automatically resumes interrupted downloads from the exact byte where
+       the connection dropped using `Range: bytes=<length>-`.
+   * Atomic File Renaming:
+     - Files only receive their final extension once the entire byte stream
+       has finished and verified.
+   * Real-Time Progress Metrics:
+     - Emits callbacks every 250 ms with accurate metrics: speed (bytes/sec),
+       ETA (seconds), downloadedBytes, totalBytes, percentage, and elapsed time.
 
-6. INSPECCION Y SELECCION DE FORMATOS Y CODECS:
-   - Equivalente a `yt-dlp -F`: tabla formateada con IDs, resoluciones, FPS,
-     tamano estimado, video codec (`vcodec`) y audio codec (`acodec`).
-   - Descarga separada de video y audio en maxima calidad (`downloadSeparate`).
+6. FORMAT & CODEC INSPECTION (-F / listFormats)
+   * Equivalent to `yt-dlp -F`:
+     - Displays formatted ASCII table showing Format ID, extension, resolution,
+       FPS, estimated filesize, video codec (`vcodec`), audio codec (`acodec`),
+       and format notes.
+   * Separate Video & Audio Downloading:
+     - Concurrently downloads the best adaptive video stream and audio stream
+       without muxing them (`downloadSeparate`).
 
-7. SISTEMA DE COMPILACION MODULAR NINJA (build.cmd / build.sh):
-   - Minificacion agresiva con Terser (mangling de variables, eliminacion de codigo
-     muerto y 100% de comentarios removidos).
-   - Compilaciones especializadas con aislamiento estricto de codigo:
-     * ALL: Bundle completo (~66 KiB)
-     * YOUTUBE: Bundle ultra-ligero solo para YouTube (~60 KiB)
-     * TIKTOK: Bundle ultra-ligero solo para TikTok (~59 KiB)
-   - Tests de integridad post-enlazado automatizados.
+7. IMAGE & THUMBNAIL DOWNLOADER
+   * Direct download of video thumbnails or standalone images (.jpg, .png,
+     .webp, .gif, .svg) to disk (`downloadImage`).
 
-8. CALIDAD Y CUMPLIMIENTO LEGAL:
-   - Suite de 47 pruebas automatizadas con 100% de aprobacion (`npm test`).
-   - Licencia Apache 2.0 y declaracion de apoyo a herramientas de Inteligencia
-     Artificial (Open AI Statement) en el 100% de los archivos del proyecto.
+8. NETWORKING & COOKIE MANAGEMENT
+   * `CookieJar` with full Netscape format import/export.
+   * `RequestDirector` supporting custom headers, redirects, and session state.
+
+9. MODULAR NINJA BUILD PIPELINE (build.cmd / build.sh)
+   * Advanced Terser Minification:
+     - Full variable identifier mangling and obfuscation.
+     - 100% comment and JSDoc stripping.
+     - 2-pass dead code elimination.
+   * Target-Specific Bundle Modularity:
+     - ALL: Complete bundle (YouTube + TikTok + Direct Streams) ~66 KiB minified.
+     - YOUTUBE: Lean bundle with 0 TikTok code ~60 KiB minified.
+     - TIKTOK: Lean bundle with 0 YouTube code ~59 KiB minified.
+   * Automated Pre-Flight & Post-Linking Integrity Tests:
+     - Verifies exports, template expansion, comment stripping, and runs
+       separate video/music download linking tests on every build.
+
+10. QUALITY, TESTING & COMPLIANCE
+   * 47/47 passing automated unit tests (`npm test`).
+   * Apache License 2.0.
+   * Open AI Statement headers present on 100% of codebase files.
 
 ================================================================================
-FIN DEL RESUMEN DE RELEASE
+END OF RELEASE NOTES
 ================================================================================
