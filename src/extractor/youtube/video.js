@@ -87,27 +87,33 @@ export class YoutubeIE extends YoutubeBaseInfoExtractor {
       throw new ExtractorError(`Could not extract video ID from ${url}`);
     }
 
-    // Call Innertube player endpoint with ANDROID client (bypasses most web throttling and cipher)
+    // Call Innertube player endpoint with client fallback cascade
     const payload = {
       videoId,
       contentCheckOk: true,
       racyCheckOk: true
     };
 
-    let playerResponse;
-    try {
-      playerResponse = await this._call_innertube('player', 'ANDROID', payload);
-    } catch (err) {
-      // Fallback to WEB client
-      playerResponse = await this._call_innertube('player', 'WEB', payload);
+    const clients = ['ANDROID', 'IOS', 'WEB'];
+    let playerResponse = null;
+    let lastError = null;
+
+    for (const client of clients) {
+      try {
+        const res = await this._call_innertube('player', client, payload);
+        const status = res?.playabilityStatus?.status;
+        if (status === 'OK') {
+          playerResponse = res;
+          break;
+        }
+        lastError = res?.playabilityStatus?.reason || res?.playabilityStatus?.messages?.join(', ') || status;
+      } catch (err) {
+        lastError = err.message;
+      }
     }
 
-    const playabilityStatus = playerResponse.playabilityStatus || {};
-    const status = playabilityStatus.status;
-
-    if (status && status !== 'OK') {
-      const reason = playabilityStatus.reason || playabilityStatus.messages?.join(', ') || 'Video unavailable';
-      throw new ExtractorError(`[youtube] ${videoId}: ${reason}`);
+    if (!playerResponse) {
+      throw new ExtractorError(`[youtube] ${videoId}: ${lastError || 'Video unavailable'}`);
     }
 
     const videoDetails = playerResponse.videoDetails || {};

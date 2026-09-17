@@ -93,10 +93,16 @@ export class InfoExtractor {
       return await this.ydl.director.send(reqOrUrl, options);
     }
     const req = typeof reqOrUrl === 'string' ? new Request(reqOrUrl, options) : reqOrUrl;
+    let body = req.data;
+    if (['GET', 'HEAD'].includes(req.method)) {
+      body = undefined;
+    } else if (body && typeof body === 'object' && !(body instanceof Uint8Array) && !(body instanceof URLSearchParams)) {
+      body = JSON.stringify(body);
+    }
     const fetchRes = await fetch(req.url, {
       method: req.method,
       headers: req.headers.toObject(),
-      body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.data
+      body
     });
     const text = await fetchRes.text();
     return {
