@@ -34,5 +34,8 @@
   "license": "Apache-2.0",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "terser": "^5.51.2"
   }
 }

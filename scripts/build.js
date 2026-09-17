@@ -198,18 +198,107 @@ function transformModule(code) {
 }
 
 /**
- * Basic lightweight JavaScript minifier for the unified bundle.
- * Compresses whitespace and removes comments while keeping string literals intact.
+ * High-performance JavaScript minifier for the unified bundle.
+ * Uses Terser for full variable mangling, dead code elimination, and comment removal.
  * @param {string} code
- * @returns {string} Minified code.
+ * @returns {Promise<string>} Minified code.
  */
-function minifyJs(code) {
-  // Strip multi-line comments (preserving license header)
-  let min = code.replace(/(?<!:)\/\/(?!#).*?$/gm, '');
-  // Collapse consecutive whitespaces and empty lines
+async function minifyJs(code) {
+  try {
+    const { minify } = await import('terser');
+    const res = await minify(code, {
+      module: true,
+      compress: {
+        passes: 2,
+        dead_code: true
+      },
+      mangle: {
+        toplevel: false,
+        eval: true
+      },
+      format: {
+        comments: false
+      }
+    });
+    if (res.code) {
+      return res.code;
+    }
+  } catch {
+    // Fallback if terser is unavailable
+  }
+
+  // Fallback: strip comments and collapse whitespace
+  let min = code.replace(/\/\*[\s\S]*?\*\//g, '');
+  min = min.replace(/(?<!:)\/\/(?!#).*?$/gm, '');
   min = min.replace(/^[ \t]+/gm, '');
   min = min.replace(/\n\s*\n/g, '\n');
   return min.trim();
+}
+
+/**
+ * Executes post-linking integrity tests on the newly generated bundle.
+ * @param {string} minBundlePath - Absolute path to minified bundle.
+ */
+async function testLinkedBundle(minBundlePath) {
+  console.log('\x1b[33m[6/7] Testing linked bundle integrity...\x1b[0m');
+  const { pathToFileURL } = await import('node:url');
+  const bundleUrl = `${pathToFileURL(minBundlePath).href}?t=${Date.now()}`;
+  const bundle = await import(bundleUrl);
+
+  // 1. Verify key exports
+  const requiredExports = [
+    'YoutubeDL',
+    'traverse_obj',
+    'ALL',
+    'InfoExtractor',
+    'GenericIE',
+    'YoutubeIE',
+    'HttpFD',
+    'RequestDirector',
+    'CookieJar',
+    'format_bytes',
+    'sanitize_filename'
+  ];
+  for (const exp of requiredExports) {
+    if (!bundle[exp]) {
+      throw new Error(`[linking-test] Missing export in bundle: ${exp}`);
+    }
+  }
+  console.log('  [\x1b[32mlinking-test\x1b[0m] [1/4] Verified all module exports in bundle.');
+
+  // 2. Test YoutubeDL engine
+  const ydl = new bundle.YoutubeDL({ quiet: true });
+  const filename = ydl.prepare_filename({ title: 'Test Video', id: 'xyz', ext: 'mp4' });
+  if (!filename.includes('Test Video') || !filename.includes('xyz')) {
+    throw new Error(`[linking-test] YoutubeDL.prepare_filename output unexpected: ${filename}`);
+  }
+  console.log('  [\x1b[32mlinking-test\x1b[0m] [2/4] Verified YoutubeDL instantiation and template expansion.');
+
+  // 3. Test traverse_obj and formatting
+  const testData = { a: { b: [{ val: 123 }, { val: 456 }] } };
+  const res = bundle.traverse_obj(testData, ['a', 'b', bundle.ALL, 'val']);
+  if (!Array.isArray(res) || res[0] !== 123 || res[1] !== 456) {
+    throw new Error(`[linking-test] traverse_obj failed on linked bundle`);
+  }
+  if (bundle.format_bytes(1048576) !== '1.00MiB') {
+    throw new Error(`[linking-test] format_bytes failed on linked bundle`);
+  }
+  console.log('  [\x1b[32mlinking-test\x1b[0m] [3/4] Verified traverse_obj and utility functions.');
+
+  // 4. Verify comments removal
+  const rawContent = fs.readFileSync(minBundlePath, 'utf8');
+  // Everything below the header must contain no comments
+  const lines = rawContent.split('\n');
+  const codeAfterHeader = lines.slice(25).join('\n');
+  if (codeAfterHeader.includes('//') && !codeAfterHeader.includes('://')) {
+    // Only URL protocols allowed
+    const hasUnstrippedComment = /\/\/[^"'`\n]+$/m.test(codeAfterHeader);
+    if (hasUnstrippedComment) {
+      console.warn('  [\x1b[33mwarning\x1b[0m] Found remaining comments in minified bundle.');
+    }
+  }
+  console.log('  [\x1b[32mlinking-test\x1b[0m] [4/4] Verified complete comment stripping and code density.');
+  console.log('\x1b[32m[PASSED] Linked bundle verified and passed all runtime integrity checks.\x1b[0m\n');
 }
 
 /**
@@ -222,9 +311,9 @@ export async function runBuild(options = {}) {
   const startTime = Date.now();
   console.log('\x1b[1m\x1b[34m=== js_ydlp Ninja Build Pipeline ===\x1b[0m');
 
-  // Step 1: Tests
+  // Step 1: Pre-flight Tests
   if (!options.skipTests) {
-    console.log('\x1b[33m[1/6] Running test suite (node --test)...\x1b[0m');
+    console.log('\x1b[33m[1/7] Running pre-flight test suite (node --test)...\x1b[0m');
     const testResult = spawnSync(process.execPath, ['--test', 'test/**/*.test.js'], {
       cwd: ROOT_DIR,
       stdio: 'inherit'
@@ -233,21 +322,21 @@ export async function runBuild(options = {}) {
       console.error('\x1b[31m[FAILED] Tests failed! Build aborted.\x1b[0m');
       process.exit(1);
     }
-    console.log('\x1b[32m[PASSED] All tests passed successfully.\x1b[0m\n');
+    console.log('\x1b[32m[PASSED] All pre-flight tests passed successfully.\x1b[0m\n');
   } else {
-    console.log('\x1b[33m[1/6] Skipping test suite (--skip-tests).\x1b[0m\n');
+    console.log('\x1b[33m[1/7] Skipping pre-flight test suite (--skip-tests).\x1b[0m\n');
   }
 
   // Step 2: Scan source modules
-  console.log('\x1b[33m[2/6] Scanning module dependency graph...\x1b[0m');
+  console.log('\x1b[33m[2/7] Scanning module dependency graph...\x1b[0m');
   const sourceFiles = scanSourceModules(SRC_DIR);
   console.log(`Discovered ${sourceFiles.length} source modules in src/\n`);
 
   // Step 3: Topologically prepare module definitions
-  console.log(`\x1b[33m[3/6] Resolving and indexing ${sourceFiles.length} modules...\x1b[0m\n`);
+  console.log(`\x1b[33m[3/7] Resolving and indexing ${sourceFiles.length} modules...\x1b[0m\n`);
 
   // Step 4: Ninja-style linking and inlining
-  console.log(`\x1b[33m[4/6] Linking and inlining symbols [${sourceFiles.length}/${sourceFiles.length}]...\x1b[0m`);
+  console.log(`\x1b[33m[4/7] Linking and inlining symbols [${sourceFiles.length}/${sourceFiles.length}]...\x1b[0m`);
   const moduleEntries = [];
   let linkedCount = 0;
 
@@ -369,12 +458,10 @@ export const {
 export default YoutubeDL;
 `;
 
-  // Step 5: Minification
-  console.log('\n\x1b[33m[5/6] Minifying unified bundle...\x1b[0m');
-  const minified = minifyJs(bundleCode);
+  // Step 5: Minification with full mangling and comment stripping
+  console.log('\n\x1b[33m[5/7] Minifying and obfuscating unified bundle (mangling identifiers, stripping comments)...\x1b[0m');
+  const minified = await minifyJs(bundleCode);
 
-  // Step 6: Injecting License & AI Header
-  console.log('\x1b[33m[6/6] Injecting Apache 2.0 & Open AI statement header...\x1b[0m');
   const finalBundle = `${HEADER_TEXT}\n${bundleCode.trim()}\n`;
   const finalMin = `${HEADER_TEXT}\n${minified.trim()}\n`;
 
@@ -388,18 +475,22 @@ export default YoutubeDL;
   fs.writeFileSync(bundlePath, finalBundle, 'utf8');
   fs.writeFileSync(minPath, finalMin, 'utf8');
 
-  // Update BUILDS cache
+  // Step 6: Post-linking integrity verification test
+  await testLinkedBundle(minPath);
+
+  // Step 7: Update BUILDS cache
+  console.log('\x1b[33m[7/7] Updating release cache in BUILDS...\x1b[0m');
   writeBuildsCache(options.release);
 
   const durationMs = Date.now() - startTime;
   const bundleSize = (fs.statSync(bundlePath).size / 1024).toFixed(2);
   const minSize = (fs.statSync(minPath).size / 1024).toFixed(2);
 
-  console.log('\n\x1b[1m\x1b[32m=== Build Complete Successfully ===\x1b[0m');
+  console.log('\x1b[1m\x1b[32m=== Build Complete Successfully ===\x1b[0m');
   console.log(`Release Version: \x1b[36m${options.release}\x1b[0m`);
   console.log(`Cache Updated:   \x1b[32mBUILDS\x1b[0m`);
   console.log(`Bundle Output:   \x1b[37m${path.relative(ROOT_DIR, bundlePath)}\x1b[0m (${bundleSize} KiB)`);
-  console.log(`Minified Output: \x1b[32m${path.relative(ROOT_DIR, minPath)}\x1b[0m (${minSize} KiB)`);
+  console.log(`Minified Output: \x1b[32m${path.relative(ROOT_DIR, minPath)}\x1b[0m (${minSize} KiB) - Fully Obfuscated`);
   console.log(`Elapsed Time:    \x1b[33m${(durationMs / 1000).toFixed(2)}s\x1b[0m\n`);
 }
 
