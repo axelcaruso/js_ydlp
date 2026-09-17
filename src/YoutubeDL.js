@@ -33,6 +33,7 @@ import { get_suitable_downloader } from './downloader/index.js';
 import { sanitize_filename, format_bytes } from './utils/formatting.js';
 import { determine_ext } from './utils/networking.js';
 import { DownloadError, ExtractorError } from './utils/common.js';
+import { FFmpegPostProcessor } from './postprocessor/ffmpeg.js';
 
 export const DEFAULT_OUTTMPL = '%(title)s [%(id)s].%(ext)s';
 
@@ -558,6 +559,76 @@ export class YoutubeDL {
     return {
       filename,
       bytes: buffer.length
+    };
+  }
+
+  /**
+   * Downloads a media URL and extracts its audio track (music).
+   * Equivalent to yt-dlp -x / --extract-audio.
+   *
+   * @param {string} url - Media URL.
+   * @param {object} [options]
+   * @param {string} [options.outtmpl] - Target audio filename or template (e.g. 'music.mp3' or 'music.m4a').
+   * @param {string} [options.format='mp3'] - Output audio format ('mp3', 'm4a', 'wav', 'opus').
+   * @param {string} [options.acodec] - Target audio codec ('copy', 'libmp3lame', etc.).
+   * @returns {Promise<{ filename: string, info: object }>}
+   */
+  async extract_audio(url, options = {}) {
+    const targetPath = options.outtmpl || '%(title)s.mp3';
+    const isDirectAudioExt = targetPath.endsWith('.mp3') || targetPath.endsWith('.m4a') || targetPath.endsWith('.aac') || targetPath.endsWith('.opus') || targetPath.endsWith('.wav');
+
+    // 1. Extract metadata
+    const info = await this.extract_info(url, { download: false });
+
+    // Check if an audio-only stream is already available with a direct URL
+    const audioOnlyFormat = info.formats?.find(
+      (f) => (!f.vcodec || f.vcodec === 'none') && f.acodec && f.acodec !== 'none' && f.url
+    );
+
+    if (audioOnlyFormat && (targetPath.endsWith(`.${audioOnlyFormat.ext}`) || !isDirectAudioExt)) {
+      const destFilename = options.outtmpl || this.prepare_filename({ ...info, ext: audioOnlyFormat.ext });
+      fs.mkdirSync(path.dirname(path.resolve(destFilename)), { recursive: true });
+      const DownloaderClass = get_suitable_downloader(audioOnlyFormat, this.params);
+      const downloader = new DownloaderClass(this, { ...this.params, progress_hooks: this._progressHooks });
+      await downloader.download(destFilename, audioOnlyFormat);
+      return { filename: destFilename, info };
+    }
+
+    // Otherwise, download the best format with audio (e.g. format 18 MP4) to temporary file and extract audio
+    const bestWithAudio = this.select_format(info.formats, 'best') || info.formats?.[0];
+    if (!bestWithAudio) {
+      throw new Error(`No format with audio available for ${url}`);
+    }
+
+    const tmpVideoFile = path.resolve(`temp_${Date.now()}_${info.id}.${bestWithAudio.ext || 'mp4'}`);
+    const DownloaderClass = get_suitable_downloader(bestWithAudio, this.params);
+    const downloader = new DownloaderClass(this, { ...this.params, progress_hooks: this._progressHooks });
+
+    this.to_screen(`[download] Downloading stream for audio extraction: ${bestWithAudio.format_id}`);
+    await downloader.download(tmpVideoFile, bestWithAudio);
+
+    // Resolve final audio path
+    let finalAudioPath = options.outtmpl;
+    if (!finalAudioPath) {
+      finalAudioPath = this.prepare_filename({ ...info, ext: 'mp3' });
+    } else if (finalAudioPath.includes('%(')) {
+      finalAudioPath = this.prepare_filename({ ...info, outtmpl: finalAudioPath });
+    }
+    fs.mkdirSync(path.dirname(path.resolve(finalAudioPath)), { recursive: true });
+
+    const ffmpeg = new FFmpegPostProcessor();
+    this.to_screen(`[extract_audio] Extracting audio to: ${finalAudioPath}`);
+    await ffmpeg.extractAudio(tmpVideoFile, finalAudioPath, { acodec: options.acodec });
+
+    // Clean up temporary video file
+    try {
+      if (fs.existsSync(tmpVideoFile)) fs.unlinkSync(tmpVideoFile);
+    } catch {}
+
+    this.to_screen(`[extract_audio] 100% of ${finalAudioPath}`);
+    return {
+      filename: finalAudioPath,
+      info
     };
   }
 }

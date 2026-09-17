@@ -79,4 +79,51 @@ export class FFmpegPostProcessor extends PostProcessor {
       });
     });
   }
+
+  /**
+   * Extracts audio from a media file to a standalone audio file.
+   *
+   * @param {string} inputPath - Input media file.
+   * @param {string} outputPath - Output audio file.
+   * @param {object} [options]
+   * @param {string} [options.acodec] - Audio codec ('copy', 'libmp3lame', 'aac', etc.).
+   * @returns {Promise<string>} Output file path.
+   */
+  async extractAudio(inputPath, outputPath, options = {}) {
+    const available = await this.isAvailable();
+    if (!available) {
+      throw new PostProcessingError('FFmpeg is required for audio extraction but was not found in PATH');
+    }
+
+    let acodec = options.acodec;
+    if (!acodec) {
+      if (outputPath.endsWith('.mp3')) {
+        acodec = 'libmp3lame';
+      } else if (outputPath.endsWith('.m4a') || outputPath.endsWith('.aac')) {
+        acodec = 'copy';
+      } else {
+        acodec = 'copy';
+      }
+    }
+
+    const args = [
+      '-y',
+      '-i', inputPath,
+      '-vn',
+      '-c:a', acodec,
+      outputPath
+    ];
+
+    return new Promise((resolve, reject) => {
+      const proc = spawn('ffmpeg', args, { stdio: 'ignore' });
+      proc.on('error', (err) => reject(new PostProcessingError(`FFmpeg execution error: ${err.message}`)));
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve(outputPath);
+        } else {
+          reject(new PostProcessingError(`FFmpeg failed with exit code ${code}`));
+        }
+      });
+    });
+  }
 }
