@@ -766,7 +766,7 @@ Examples:
       i++;
     } else if (['all', 'full', 'youtube', 'tiktok'].includes(arg.toLowerCase())) {
       target = arg.toLowerCase();
-    } else if (/^\d+\.\d+(\.\d+)?$/.test(arg)) {
+    } else if (/^\d+\.\d+(\.\d+)?(-[\w.]+)?$/.test(arg)) {
       releaseArg = arg;
     }
   }

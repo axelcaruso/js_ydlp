@@ -768,6 +768,17 @@ export class YoutubeDL {
    */
   async extract_audio(urlOrInfo, options = {}) {
     const rawOpts = { ...options };
+    const enrich = Boolean(
+      rawOpts.enrich ??
+      this.params.enrich ??
+      rawOpts.cleanName ??
+      rawOpts.clean_name ??
+      rawOpts.cleanFilename ??
+      rawOpts.clean_filename ??
+      rawOpts.enrich_metadata ??
+      rawOpts.enrichMetadata ??
+      false
+    );
     const opts = {
       outtmpl: rawOpts.output || rawOpts.outtmpl || rawOpts.out || '%(title)s.mp3',
       fetch_metadata: rawOpts.fetchMetadata ?? rawOpts.fetch_metadata ?? true,
@@ -775,6 +786,7 @@ export class YoutubeDL {
       embed_lyrics: rawOpts.embedLyrics ?? rawOpts.embed_lyrics ?? true,
       write_lrc: rawOpts.writeLrc ?? rawOpts.write_lrc ?? false,
       embed_metadata: rawOpts.embedMetadata ?? rawOpts.embed_metadata ?? true,
+      enrich,
       cover: rawOpts.cover || rawOpts.coverPath || null,
       artist: rawOpts.artist,
       title: rawOpts.title,
@@ -818,21 +830,99 @@ export class YoutubeDL {
     let genre = opts.genre || info.genre || null;
     let year = opts.year || info.release_year || null;
 
-    // Search rich music metadata (genre, official album, release year)
-    if (opts.fetch_metadata !== false) {
+    // Search rich music metadata (genre, official album, release year, and clean matched artist/title)
+    const lyricsProvider = new LyricsProvider({ director: this.director });
+    let musicMeta = null;
+    if (opts.fetch_metadata !== false || enrich) {
       try {
-        const lyricsProvider = new LyricsProvider({ director: this.director });
-        const musicMeta = await lyricsProvider.fetchMusicMetadata({ artist, title, info });
+        musicMeta = await lyricsProvider.fetchMusicMetadata({ artist, title, info });
         if (musicMeta) {
           if (!genre && musicMeta.genre) genre = musicMeta.genre;
           if ((!album || album === title) && musicMeta.album) album = musicMeta.album;
           if (!year && musicMeta.year) year = musicMeta.year;
-          this.to_screen(`[extract_audio] Music metadata found: Genre: ${genre || 'N/A'} | Album: ${album || 'N/A'} | Year: ${year || 'N/A'}`);
+
+          if (enrich) {
+            if (musicMeta.artist && musicMeta.artist !== 'Unknown Artist') {
+              artist = musicMeta.artist;
+            }
+            if (musicMeta.title) {
+              title = musicMeta.title;
+            }
+          }
+
+          this.to_screen(`[extract_audio] Music metadata found (${musicMeta.source}): Artist: ${artist} | Title: ${title} | Genre: ${genre || 'N/A'} | Album: ${album || 'N/A'} | Year: ${year || 'N/A'}`);
         }
       } catch (err) {
         this.report_warning(`Could not fetch rich music metadata: ${err.message}`);
       }
     }
+
+    if (enrich && !musicMeta) {
+      artist = lyricsProvider.cleanTrackName(artist) || artist;
+      title = lyricsProvider.cleanTrackName(title) || title;
+    }
+
+    // Form clean sanitized base name for file naming
+    let cleanBase = '';
+    const hasValidArtist = artist && artist.toLowerCase() !== 'unknown artist';
+    if (hasValidArtist && !title.toLowerCase().includes(artist.toLowerCase())) {
+      cleanBase = `${artist} - ${title}`;
+    } else {
+      cleanBase = title;
+    }
+    const cleanSanitizedBase = sanitize_filename(cleanBase);
+
+    if (enrich) {
+      info.clean_title = cleanSanitizedBase;
+      info.clean_artist = artist;
+      info.clean_track = title;
+    }
+
+    const resolveAudioDestination = (ext = 'mp3') => {
+      let candidate = opts.outtmpl;
+      if (!candidate) candidate = '%(title)s.mp3';
+
+      if (enrich) {
+        const isDir = candidate.endsWith('/') || candidate.endsWith('\\') || (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory());
+        if (isDir) {
+          return path.join(candidate, `${cleanSanitizedBase}.${ext}`);
+        }
+
+        const base = path.basename(candidate);
+        const dir = path.dirname(candidate);
+
+        if (base === '%(title)s.mp3' || base === '%(title)s' || base === `${info.title}.mp3`) {
+          return (dir && dir !== '.') ? path.join(dir, `${cleanSanitizedBase}.${ext}`) : `${cleanSanitizedBase}.${ext}`;
+        }
+
+        if (candidate.includes('%(')) {
+          const enrichedInfo = {
+            ...info,
+            artist,
+            title: cleanSanitizedBase,
+            track: title,
+            album,
+            genre: genre || 'NA',
+            ext
+          };
+          return this.prepare_filename({ ...enrichedInfo, outtmpl: candidate, ext });
+        }
+
+        if (!rawOpts.output && !rawOpts.outtmpl && !rawOpts.out) {
+          return `${cleanSanitizedBase}.${ext}`;
+        }
+
+        return candidate;
+      }
+
+      if (candidate.includes('%(')) {
+        return this.prepare_filename({ ...info, ext, outtmpl: candidate });
+      }
+      if (!path.extname(candidate)) {
+        return `${candidate}.${ext}`;
+      }
+      return candidate;
+    };
 
     this.to_screen(`[extract_audio] Artist: ${artist} | Title: ${title}${genre ? ` | Genre: ${genre}` : ''}`);
 
@@ -907,13 +997,13 @@ export class YoutubeDL {
       );
 
       if (audioOnlyFormat && (targetPath.endsWith(`.${audioOnlyFormat.ext}`) || !isDirectAudioExt)) {
-        const destFilename = opts.outtmpl || this.prepare_filename({ ...info, ext: audioOnlyFormat.ext });
+        const destFilename = resolveAudioDestination(audioOnlyFormat.ext || 'm4a');
         fs.mkdirSync(path.dirname(path.resolve(destFilename)), { recursive: true });
         const DownloaderClass = get_suitable_downloader(audioOnlyFormat, this.params);
         const downloader = new DownloaderClass(this, { ...this.params, progress_hooks: this._progressHooks });
         await downloader.download(destFilename, audioOnlyFormat);
 
-        if (tmpCoverFile || Object.keys(metadataTags).length > 0) {
+        if (opts.embed_metadata !== false && (tmpCoverFile || Object.keys(metadataTags).length > 0)) {
           const ffmpeg = new FFmpegPostProcessor();
           await ffmpeg.embedMetadata(destFilename, { coverPath: tmpCoverFile, metadata: metadataTags });
         }
@@ -952,12 +1042,7 @@ export class YoutubeDL {
       await downloader.download(tmpVideoFile, bestWithAudio);
 
       // Resolve final audio path
-      let finalAudioPath = opts.outtmpl;
-      if (!finalAudioPath) {
-        finalAudioPath = this.prepare_filename({ ...info, ext: 'mp3' });
-      } else if (finalAudioPath.includes('%(')) {
-        finalAudioPath = this.prepare_filename({ ...info, ext: 'mp3', outtmpl: finalAudioPath });
-      }
+      const finalAudioPath = resolveAudioDestination('mp3');
       fs.mkdirSync(path.dirname(path.resolve(finalAudioPath)), { recursive: true });
 
       const ffmpeg = new FFmpegPostProcessor();

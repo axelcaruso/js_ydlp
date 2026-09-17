@@ -102,14 +102,16 @@ await download('https://www.tiktok.com/@user/video/123456789', {
 });
 ```
 
-### 2. Download Music with Cover Art, Genre, Year & Lyrics
+### 2. Download Music with Database Enrichment & Clean Filename
 ```javascript
 import { downloadMusic } from './src/index.js';
 
-// Downloads tagged MP3 with embedded cover image, album, genre, and lyrics!
-await downloadMusic('https://www.youtube.com/watch?v=yJg-Y5byMMw', {
-  output: '~/Desktop/%(title)s.mp3',
-  writeLrc: true // Also saves synced .lrc file
+// Searches iTunes / LRCLIB, removes YouTube clutter, embeds cover art & lyrics,
+// and automatically saves with a clean "Artist - Title.mp3" filename!
+await downloadMusic('https://www.youtube.com/watch?v=wsGdGASOjro', {
+  enrich: true,       // Matches clean artist/title in DB & strips YouTube noise
+  output: '~/Music/', // Saves cleanly as: "~/Music/AGST - Thought.mp3"
+  writeLrc: true      // Also saves synced .lrc file
 });
 ```
 
@@ -151,25 +153,28 @@ console.log(result.files);   // ['downloads/Thought.mp4']
 *Alias: `extractAudio(url, options)`*
 
 Extracts the audio track from a video and enriches it with:
-1. **ID3v2 tags**: Artist, song title, album name, genre, and release year (searched from public music databases).
-2. **Cover Art**: High-resolution thumbnail downloaded and embedded into the MP3 container (`APIC` frame).
-3. **Lyrics**: Synced or plain lyrics automatically searched and embedded (`USLT` frame).
-4. **Synced LRC**: Generates a synchronized `.lrc` file alongside the audio if `writeLrc: true`.
+1. **Database Enrichment & Clean Filenames (`enrich: true`)**: Searches public music databases (iTunes Search API and LRCLIB) to match the official song, removes YouTube title noise (e.g. `[NCS Release]`, `(Official Video)`, `(Lyrics)`, ` - Topic`), and automatically names the MP3 file cleanly as `Artist - Title.mp3`.
+2. **ID3v2 tags**: Artist, song title, album name, genre, and release year verified against official music catalogs.
+3. **Cover Art**: High-resolution thumbnail downloaded and embedded into the MP3 container (`APIC` frame).
+4. **Lyrics**: Synced or plain lyrics automatically searched and embedded (`USLT` frame).
+5. **Synced LRC**: Generates a synchronized `.lrc` file alongside the audio if `writeLrc: true`.
 
 ```javascript
 const track = await downloadMusic('https://www.youtube.com/watch?v=wsGdGASOjro', {
-  output: 'music/%(title)s.mp3',
-  embedThumbnail: true,
-  embedLyrics: true,
-  fetchMetadata: true,
-  writeLrc: true
+  enrich: true,         // Clean name & database metadata match (e.g. "AGST - Thought.mp3")
+  output: 'music/',     // Directory or custom template
+  embedThumbnail: true, // Embed album art into MP3
+  embedLyrics: true,    // Search and embed lyrics
+  writeLrc: true        // Save synced .lrc file alongside
 });
 
-console.log(track.filename);      // 'music/Thought.mp3'
-console.log(track.artist);        // 'AGST - Topic'
-console.log(track.album);         // 'Thought'
-console.log(track.genre);         // 'Dance / Electronic'
-console.log(track.lrc_file);      // 'music/Thought.lrc'
+console.log(track.filename);      // 'music/AGST - Thought.mp3'
+console.log(track.artist);        // 'AGST'
+console.log(track.title);         // 'Thought'
+console.log(track.album);         // 'Thought - Single'
+console.log(track.genre);         // 'Electronic'
+console.log(track.year);          // '2023'
+console.log(track.lrc_file);      // 'music/AGST - Thought.lrc'
 ```
 
 ---
@@ -402,6 +407,7 @@ All options support both modern `camelCase` and traditional `snake_case`:
 | `onProgress` | `progress_hooks` | `Function` | `[]` | Callback invoked every 250ms with progress metrics. |
 | `recodeVideo` | `recode_video` | `string` | `null` | Target video container/codec (e.g. `'mp4'`, `'h264'`). |
 | `autoRecodeHevc` | `auto_recode_hevc`| `boolean` | `true` | Automatically convert HEVC (H.265) to universal H.264 (AVC). |
+| `enrich` / `cleanName` | `clean_name` / `clean_filename` | `boolean` | `false` | Matches song in music databases (iTunes/LRCLIB), strips YouTube noise, and saves clean `Artist - Title.mp3` filename. |
 | `embedThumbnail` | `embed_thumbnail`| `boolean` | `true` | Embed cover art image into audio metadata (`extractAudio`). |
 | `embedLyrics` | `embed_lyrics` | `boolean` | `true` | Search and embed lyrics into ID3 tags (`extractAudio`). |
 | `fetchMetadata` | `fetch_metadata`| `boolean` | `true` | Search online music databases for genre, album, and year. |

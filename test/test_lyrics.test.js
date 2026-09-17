@@ -40,6 +40,15 @@ test('LyricsProvider track name cleaning', () => {
 
   const dirty3 = 'Song Name (Audio) | Future Trap _ Bass';
   assert.equal(provider.cleanTrackName(dirty3), 'Song Name');
+
+  const dirty4 = 'AGST - Topic';
+  assert.equal(provider.cleanTrackName(dirty4), 'AGST');
+
+  const dirty5 = 'Queen - Bohemian Rhapsody (Remastered 2011)';
+  assert.equal(provider.cleanTrackName(dirty5), 'Queen - Bohemian Rhapsody');
+
+  const dirty6 = 'Cool Track [FREE DOWNLOAD] [1080p]';
+  assert.equal(provider.cleanTrackName(dirty6), 'Cool Track');
 });
 
 test('LyricsProvider caption parsing to plain and synced LRC', async () => {
@@ -191,4 +200,38 @@ test('LyricsProvider fetchMusicMetadata extracts genre, album, and year', async 
   assert.equal(fallbackMeta.genre, 'Trap');
   assert.equal(fallbackMeta.year, '2023');
   assert.equal(fallbackMeta.source, 'video_metadata');
+});
+
+test('LyricsProvider fetchMusicMetadata falls back to LRCLIB database when iTunes has no match', async () => {
+  const provider = new LyricsProvider();
+
+  provider.director = {
+    async send(url) {
+      if (url.includes('itunes.apple.com/search')) {
+        return { ok: true, async json() { return { results: [] }; } };
+      }
+      if (url.includes('/api/search')) {
+        return {
+          ok: true,
+          async json() {
+            return [
+              {
+                trackName: 'Spectre',
+                artistName: 'Alan Walker',
+                albumName: 'Spectre - Single'
+              }
+            ];
+          }
+        };
+      }
+      return { ok: false };
+    }
+  };
+
+  const meta = await provider.fetchMusicMetadata({ artist: 'Alan Walker', title: 'Spectre (Audio)' });
+  assert.ok(meta);
+  assert.equal(meta.source, 'lrclib');
+  assert.equal(meta.artist, 'Alan Walker');
+  assert.equal(meta.title, 'Spectre');
+  assert.equal(meta.album, 'Spectre - Single');
 });

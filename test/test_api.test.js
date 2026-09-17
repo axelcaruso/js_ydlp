@@ -163,3 +163,91 @@ test('Intuitive API: End-to-end one-liner download() and extractInfo() execution
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test('Intuitive API: downloadMusic with enrich flag cleans title and renames MP3 from database', async () => {
+  const fakeAudioContent = Buffer.from('FAKE_AUDIO_STREAM_DATA');
+  const server = http.createServer((req, res) => {
+    if (req.url === '/audio.mp3') {
+      res.writeHead(200, {
+        'Content-Type': 'audio/mpeg',
+        'Content-Length': fakeAudioContent.length
+      });
+      res.end(fakeAudioContent);
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ydlp-enrich-test-'));
+
+  const mockInfo = {
+    id: 'test_song_123',
+    title: 'Alan Walker - Fade [NCS Release]',
+    uploader: 'NoCopyrightSounds',
+    formats: [
+      {
+        format_id: '140',
+        url: `http://127.0.0.1:${port}/audio.mp3`,
+        ext: 'mp3',
+        vcodec: 'none',
+        acodec: 'mp3'
+      }
+    ]
+  };
+
+  const ydl = new YoutubeDL({ quiet: true });
+  // Mock iTunes response for database lookup while allowing HTTP download
+  ydl.director = {
+    async send(urlOrReq, reqOpts = {}) {
+      const urlStr = typeof urlOrReq === 'string' ? urlOrReq : (urlOrReq?.url || String(urlOrReq));
+      if (urlStr.includes('itunes.apple.com/search')) {
+        return {
+          ok: true,
+          async json() {
+            return {
+              resultCount: 1,
+              results: [
+                {
+                  artistName: 'Alan Walker',
+                  trackName: 'Fade',
+                  collectionName: 'Fade - Single',
+                  primaryGenreName: 'Dance',
+                  releaseDate: '2014-11-19T00:00:00Z'
+                }
+              ]
+            };
+          }
+        };
+      }
+      return fetch(urlStr, reqOpts);
+    }
+  };
+
+  try {
+    const result = await ydl.extract_audio(mockInfo, {
+      enrich: true,
+      outtmpl: path.join(tmpDir, '%(title)s.mp3'),
+      embed_thumbnail: false,
+      embed_metadata: false
+    });
+
+    assert.ok(result);
+    assert.equal(result.artist, 'Alan Walker');
+    assert.equal(result.title, 'Fade');
+    assert.equal(result.album, 'Fade - Single');
+    assert.equal(result.genre, 'Dance');
+    assert.equal(result.year, '2014');
+
+    const expectedCleanPath = path.join(tmpDir, 'Alan Walker - Fade.mp3');
+    assert.equal(result.filename, expectedCleanPath);
+    assert.ok(fs.existsSync(expectedCleanPath), 'Enriched clean MP3 file should exist on disk');
+    assert.equal(fs.readFileSync(expectedCleanPath).toString(), fakeAudioContent.toString());
+  } finally {
+    server.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+

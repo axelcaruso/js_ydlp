@@ -21,6 +21,8 @@ tmp/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+dist\RELEASE_2.0.0-rc-1.txt
+dist\RELEASE_2.0.0.txt
 
 # Environment and secrets
 .env

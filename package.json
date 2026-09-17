@@ -1,17 +1,29 @@
 {
   "name": "js_ydlp",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "A high-performance 1:1 Vanilla JavaScript port of yt-dlp to use as a local library",
   "type": "module",
   "main": "./src/index.js",
   "exports": {
-    ".": "./src/index.js",
+    ".": {
+      "import": "./src/index.js",
+      "default": "./src/index.js"
+    },
+    "./min": "./dist/js_ydlp.min.js",
+    "./bundle": "./dist/js_ydlp.bundle.js",
+    "./youtube": "./dist/js_ydlp.youtube.min.js",
+    "./tiktok": "./dist/js_ydlp.tiktok.min.js",
     "./utils": "./src/utils/index.js",
+    "./utils/*": "./src/utils/*.js",
     "./networking": "./src/networking/index.js",
+    "./networking/*": "./src/networking/*.js",
     "./downloader": "./src/downloader/index.js",
+    "./downloader/*": "./src/downloader/*.js",
     "./extractor": "./src/extractor/index.js",
+    "./extractor/*": "./src/extractor/*.js",
     "./postprocessor": "./src/postprocessor/index.js",
-    "./min": "./dist/js_ydlp.min.js"
+    "./postprocessor/*": "./src/postprocessor/*.js",
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "node scripts/build.js build",

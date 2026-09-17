@@ -42,8 +42,8 @@ export class LyricsProvider {
   }
 
   /**
-   * Cleans title and artist strings by stripping common YouTube suffixes and tags.
-   * E.g. "(Official Music Video)", "[NCS Release]", "(feat. ...)", etc.
+   * Cleans title and artist strings by stripping common YouTube suffixes, tags, and channel noise.
+   * E.g. "(Official Music Video)", "[NCS Release]", "(feat. ...)", " - Topic", etc.
    *
    * @param {string} str - Raw string.
    * @returns {string} Cleaned string.
@@ -51,11 +51,13 @@ export class LyricsProvider {
   cleanTrackName(str) {
     if (!str) return '';
     return str
-      .replace(/\s*[\(\[](official\s*(music\s*)?video|audio|lyrics?|visualizer|ncs\s*release|remix|hd|4k|hq)[\)\]]/gi, '')
-      .replace(/[\(\[]\s*feat\.?.*?[\]\)]/gi, '')
+      .replace(/[\(\[\{]\s*(official\s*(music\s*|lyric\s*|audio\s*|video\s*)?video|official\s*audio|official|lyrics?(\s*video)?|visualizer|audio\s*video|ncs\s*release|free\s*(download|dl)|clip\s*officiel|video\s*oficial|audio|hd|4k(\s*60fps)?|hq|1080p|remaster(ed)?(\s*\d+)?)\s*[\)\]\}]/gi, '')
+      .replace(/[\(\[\{]\s*(feat\.?|ft\.?).*?[\)\]\}]/gi, '')
       .replace(/\|.*$/g, '')
-      .replace(/_.*$/g, '')
+      .replace(/\s*-\s*topic$/gi, '')
+      .replace(/\s+topic$/gi, '')
       .replace(/\s+/g, ' ')
+      .replace(/^[-–—\s]+|[-–—\s]+$/g, '')
       .trim();
   }
 
@@ -252,15 +254,22 @@ export class LyricsProvider {
    * @returns {Promise<{ genre: string|null, year: string|null, releaseDate: string|null, album: string|null, artist: string, title: string, source: string }|null>}
    */
   async fetchMusicMetadata({ artist, title, info = {} }) {
-    const cleanArtist = this.cleanTrackName(artist);
-    const cleanTitle = this.cleanTrackName(title);
-    const query = `${cleanArtist} ${cleanTitle}`.trim();
+    let cleanArtist = this.cleanTrackName(artist || '');
+    let cleanTitle = this.cleanTrackName(title || '');
+
+    // Strip VEVO suffix from artist if present (e.g. AlanWalkerVEVO -> AlanWalker)
+    if (/^[A-Za-z0-9]+VEVO$/i.test(cleanArtist) && cleanArtist.length > 4) {
+      cleanArtist = cleanArtist.replace(/VEVO$/i, '').trim();
+    }
+
+    const artistForQuery = (cleanArtist && cleanArtist.toLowerCase() !== 'unknown artist') ? cleanArtist : '';
+    const query = `${artistForQuery} ${cleanTitle}`.trim();
 
     if (!query) return null;
 
     // 1. Query iTunes Search API (free, official, accurate genre and release dates)
     try {
-      const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=3`;
+      const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=5`;
       const res = await this.director.send(itunesUrl, {
         headers: { 'User-Agent': 'js_ydlp/1.0 (+https://github.com/axelcaruso/js_ydlp)' }
       });
@@ -268,7 +277,21 @@ export class LyricsProvider {
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.results) && data.results.length > 0) {
-          const item = data.results[0];
+          // Find the best match if multiple results returned
+          let item = data.results[0];
+          if (cleanTitle) {
+            const titleLower = cleanTitle.toLowerCase();
+            const artistLower = artistForQuery.toLowerCase();
+            const best = data.results.find((r) => {
+              const rTitle = (r.trackName || '').toLowerCase();
+              const rArtist = (r.artistName || '').toLowerCase();
+              const titleMatch = rTitle.includes(titleLower) || titleLower.includes(rTitle);
+              const artistMatch = !artistLower || rArtist.includes(artistLower) || artistLower.includes(rArtist);
+              return titleMatch && artistMatch;
+            });
+            if (best) item = best;
+          }
+
           const releaseDate = item.releaseDate || null;
           let year = null;
           if (releaseDate) {
@@ -280,15 +303,39 @@ export class LyricsProvider {
             album: item.collectionName || null,
             year,
             releaseDate,
-            artist: item.artistName || artist,
-            title: item.trackName || title,
+            artist: item.artistName || cleanArtist || artist,
+            title: item.trackName || cleanTitle || title,
             source: 'itunes'
           };
         }
       }
     } catch {}
 
-    // 2. Fallback: Check YouTube category or keywords for music genre
+    // 2. Fallback: Query LRCLIB search API for music metadata match
+    try {
+      const lrclibUrl = `${this.lrclibUrl}/api/search?q=${encodeURIComponent(query)}`;
+      const lrcRes = await this.director.send(lrclibUrl, {
+        headers: { 'User-Agent': 'js_ydlp/1.0 (+https://github.com/axelcaruso/js_ydlp)' }
+      });
+
+      if (lrcRes.ok) {
+        const lrcItems = await lrcRes.json();
+        if (Array.isArray(lrcItems) && lrcItems.length > 0) {
+          const match = lrcItems.find((m) => m.artistName && m.trackName) || lrcItems[0];
+          return {
+            genre: null,
+            album: match.albumName || null,
+            year: null,
+            releaseDate: null,
+            artist: match.artistName || cleanArtist || artist,
+            title: match.trackName || cleanTitle || title,
+            source: 'lrclib'
+          };
+        }
+      }
+    } catch {}
+
+    // 3. Fallback: Check YouTube category or keywords for music genre
     let fallbackGenre = null;
     if (info.category && info.category !== 'Music') {
       fallbackGenre = info.category;
@@ -314,13 +361,21 @@ export class LyricsProvider {
         album: info.album || null,
         year: info.upload_date ? info.upload_date.slice(0, 4) : null,
         releaseDate: info.upload_date || null,
-        artist,
-        title,
+        artist: cleanArtist || artist,
+        title: cleanTitle || title,
         source: 'video_metadata'
       };
     }
 
-    return null;
+    return {
+      genre: null,
+      album: info.album || null,
+      year: info.upload_date ? info.upload_date.slice(0, 4) : null,
+      releaseDate: info.upload_date || null,
+      artist: cleanArtist || artist,
+      title: cleanTitle || title,
+      source: 'clean_metadata'
+    };
   }
 }
 
