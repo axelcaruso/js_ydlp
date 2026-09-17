@@ -1,0 +1,116 @@
+================================================================================
+js_ydlp - RELEASE 2.0.0-rc-1
+================================================================================
+
+================================================================================
+1. DESCRIPCIONES CORTAS SUGERIDAS PARA EL REPOSITORIO (GitHub About / Description)
+================================================================================
+
+[Espanol - Opcion Recomendada]
+Potente biblioteca multimedia en Vanilla JS (Node.js, 0 dependencias) basada en la arquitectura de yt-dlp. Especializada en YouTube, TikTok (sin marcas y H.264 universal) y descarga de musica con caratula, genero, letras sincronizadas (.lrc) y streaming en chunks.
+
+[Espanol - Opcion Corta / Compacta]
+Motor de descarga multimedia en Vanilla JS basado en yt-dlp para YouTube y TikTok (sin marca), con streaming en chunks, metadatos y letras sincronizadas.
+
+[English - Recommended]
+High-performance Vanilla JS media engine (Node.js, zero dependencies) based on yt-dlp's architecture. Specialized in YouTube, TikTok (unwatermarked & universal H.264), and music downloads with covers, genres, synced lyrics (.lrc), and chunked streaming.
+
+[English - Short]
+Modern Vanilla JS media downloader based on yt-dlp for YouTube & TikTok (no watermark), featuring chunked streaming, ID3 tagging, and synced lyrics.
+
+--------------------------------------------------------------------------------
+GitHub Tags / Topics sugeridos:
+javascript, nodejs, yt-dlp, youtube-downloader, tiktok-downloader, no-watermark,
+h264, media-downloader, streaming, music-metadata, lyrics, lrc, vanilla-js
+--------------------------------------------------------------------------------
+
+
+================================================================================
+2. NOTAS DE LA VERSION / RESUMEN DE LA RELEASE (v2.0.0-rc-1)
+================================================================================
+
+Titulo de la Release:
+v2.0.0-rc-1 - The Modern Stream-First Media Engine (YouTube, TikTok & Rich Music)
+
+--------------------------------------------------------------------------------
+RESUMEN GENERAL:
+--------------------------------------------------------------------------------
+Nos complace presentar js_ydlp v2.0.0-rc-1, una biblioteca de extraccion y
+descarga multimedia de alto rendimiento en Vanilla JavaScript puro (Node.js ESM,
+cero dependencias externas en tiempo de ejecucion), basada en la probada
+arquitectura de yt-dlp pero redisenada desde cero para ser rapida, modular,
+intuitiva y enfocada en las plataformas dominantes de la web actual.
+
+
+--------------------------------------------------------------------------------
+NOVEDADES PRINCIPALES Y CARACTERISTICAS:
+--------------------------------------------------------------------------------
+
+1. API MODERNA, INTUITIVA Y DE UNA SOLA LINEA (One-Liners):
+   - Descarga directa sin necesidad de instanciar clases:
+     * download(url, options)
+     * downloadMusic(url, options) [o extractAudio]
+     * extractInfo(url, options) [o getInfo]
+     * listFormats(url, print)
+     * downloadSeparate(url, options)
+     * downloadImage(url, targetPath)
+     * getLyrics(url, options)
+     * getMetadata(url)
+   - Exportacion por defecto `ydlp` que funciona tanto como objeto con metodos
+     estaticos (`ydlp.download(...)`) como fabrica configurable (`ydlp(options)`).
+   - Soporte total Dual: acepta de forma nativa tanto `camelCase` como
+     `snake_case` en todos los metodos y opciones de configuracion.
+   - API Fluent encadenable:
+     new YoutubeDL().format('best').output('...').recode('mp4').onProgress(...)
+
+2. MOTOR ESPECIALIZADO PARA TIKTOK:
+   - Extraccion limpia sin marca de agua (prioriza flujos directos y adaptativos).
+   - Resolucion nativa de retos WAF de TikTok mediante Proof-of-Work SHA-256
+     en menos de 2 ms (sin navegadores headless pesados ni puppeteer).
+   - Conversion automatica a H.264 Universal (libx264, yuv420p, aac, +faststart):
+     convierte al instante los videos HEVC/H.265 de TikTok para que puedan
+     reproducirse en cualquier reproductor (Windows Media Player, Smart TVs, moviles).
+
+3. MOTOR AVANZADO PARA YOUTUBE:
+   - Cascada de clientes Innertube (ANDROID -> IOS -> WEB) que sortea bloqueos
+     de bots sin requerir cookies ni inicio de sesion.
+   - Descifrador de firmas JS de YouTube nativo (YoutubeSigSolver).
+   - Integracion nativa de PO-Token (PoTokenProvider).
+
+4. DESCARGA DE MUSICA CON METADATOS ENRIQUECIDOS Y LETRAS SINCRONIZADAS:
+   - Resolucion automatica de metadatos en bases publicas (iTunes API):
+     genero musical oficial, album original y ano de lanzamiento.
+   - Incrustacion de caratula oficial en alta resolucion dentro del contenedor MP3 (APIC).
+   - Busqueda automatica e incrustacion de letras (USLT).
+   - Generacion de archivos `.lrc` sincronizados para reproductores de karaoke/letras.
+
+5. ARQUITECTURA DE STREAMING EN CHUNKS (Cero saturacion de RAM):
+   - Pipeline basado en Web ReadableStream y streams de Node.js.
+   - Escritura incremental a disco en archivos temporales `.part`.
+   - Soporte para peticiones por rango HTTP (HTTP 206 Partial Content) para
+     reanudar descargas interrumpidas sin volver a descargar desde cero.
+   - Consumo de RAM plano y minimo (pocos KB), incluso descargando archivos de decenas de GB.
+   - Notificaciones de progreso precisas cada 250 ms (velocidad, ETA, porcentaje).
+
+6. INSPECCION Y SELECCION DE FORMATOS Y CODECS:
+   - Equivalente a `yt-dlp -F`: tabla formateada con IDs, resoluciones, FPS,
+     tamano estimado, video codec (`vcodec`) y audio codec (`acodec`).
+   - Descarga separada de video y audio en maxima calidad (`downloadSeparate`).
+
+7. SISTEMA DE COMPILACION MODULAR NINJA (build.cmd / build.sh):
+   - Minificacion agresiva con Terser (mangling de variables, eliminacion de codigo
+     muerto y 100% de comentarios removidos).
+   - Compilaciones especializadas con aislamiento estricto de codigo:
+     * ALL: Bundle completo (~66 KiB)
+     * YOUTUBE: Bundle ultra-ligero solo para YouTube (~60 KiB)
+     * TIKTOK: Bundle ultra-ligero solo para TikTok (~59 KiB)
+   - Tests de integridad post-enlazado automatizados.
+
+8. CALIDAD Y CUMPLIMIENTO LEGAL:
+   - Suite de 47 pruebas automatizadas con 100% de aprobacion (`npm test`).
+   - Licencia Apache 2.0 y declaracion de apoyo a herramientas de Inteligencia
+     Artificial (Open AI Statement) en el 100% de los archivos del proyecto.
+
+================================================================================
+FIN DEL RESUMEN DE RELEASE
+================================================================================
