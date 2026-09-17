@@ -10,9 +10,11 @@
     "./networking": "./src/networking/index.js",
     "./downloader": "./src/downloader/index.js",
     "./extractor": "./src/extractor/index.js",
-    "./postprocessor": "./src/postprocessor/index.js"
+    "./postprocessor": "./src/postprocessor/index.js",
+    "./min": "./dist/js_ydlp.min.js"
   },
   "scripts": {
+    "build": "node scripts/build.js build",
     "test": "node --test test/**/*.test.js",
     "headers:check": "node scripts/header-generator.js --check",
     "headers:apply": "node scripts/header-generator.js --apply"
