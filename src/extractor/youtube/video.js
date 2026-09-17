@@ -87,6 +87,25 @@ export class YoutubeIE extends YoutubeBaseInfoExtractor {
       throw new ExtractorError(`Could not extract video ID from ${url}`);
     }
 
+    // Extract visitorData session token from webpage to bypass YouTube bot detection
+    let visitorData = null;
+    let apiKey = null;
+
+    try {
+      const webpageUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      const webpage = await this._download_webpage(webpageUrl, videoId, 'Downloading webpage', false);
+      if (webpage) {
+        const ytcfgMatch = webpage.match(/ytcfg\.set\s*\(\s*({.+?})\s*\)\s*;/);
+        if (ytcfgMatch) {
+          try {
+            const cfg = JSON.parse(ytcfgMatch[1]);
+            visitorData = cfg.VISITOR_DATA || null;
+            apiKey = cfg.INNERTUBE_API_KEY || null;
+          } catch {}
+        }
+      }
+    } catch {}
+
     // Call Innertube player endpoint with client fallback cascade
     const payload = {
       videoId,
@@ -100,7 +119,7 @@ export class YoutubeIE extends YoutubeBaseInfoExtractor {
 
     for (const client of clients) {
       try {
-        const res = await this._call_innertube('player', client, payload);
+        const res = await this._call_innertube('player', client, payload, {}, apiKey, visitorData);
         const status = res?.playabilityStatus?.status;
         if (status === 'OK') {
           playerResponse = res;
@@ -178,6 +197,8 @@ export class YoutubeIE extends YoutubeBaseInfoExtractor {
 
     this._sort_formats(formats);
 
+    const captions = traverse_obj(playerResponse, ['captions', 'playerCaptionsTracklistRenderer', 'captionTracks']) || [];
+
     return {
       id: videoId,
       title,
@@ -190,6 +211,7 @@ export class YoutubeIE extends YoutubeBaseInfoExtractor {
       view_count: viewCount,
       thumbnails,
       formats,
+      captions,
       webpage_url: `https://www.youtube.com/watch?v=${videoId}`
     };
   }

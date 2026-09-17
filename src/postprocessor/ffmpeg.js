@@ -128,8 +128,13 @@ export class FFmpegPostProcessor extends PostProcessor {
       args.push('-b:a', options.bitrate || '192k');
     }
 
-    if (options.metadata) {
-      for (const [key, value] of Object.entries(options.metadata)) {
+    const metadata = { ...options.metadata };
+    if (options.lyrics && !metadata.lyrics) {
+      metadata.lyrics = options.lyrics;
+    }
+
+    if (Object.keys(metadata).length > 0) {
+      for (const [key, value] of Object.entries(metadata)) {
         if (value !== undefined && value !== null && String(value).trim() !== '') {
           args.push('-metadata', `${key}=${String(value)}`);
         }

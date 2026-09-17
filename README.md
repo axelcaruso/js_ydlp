@@ -206,9 +206,9 @@ await ydl.download(['https://example.com/banner.webp']);
 
 ---
 
-### 6. Extracting Music (MP3) with Embedded Cover Art & Artist (`yt-dlp -x --embed-thumbnail --add-metadata`)
+### 6. Extracting Music (MP3) with Embedded Cover Art, Artist & Lyrics (`yt-dlp -x --embed-thumbnail --add-metadata`)
 
-Use `extract_audio()` to download audio, convert to MP3 at high quality (192 kbps), automatically extract the artist and song title, download the highest resolution thumbnail, and embed them directly into the MP3 file using ID3v2 tags and APIC cover art:
+Use `extract_audio()` to download audio, convert to MP3 at high quality (192 kbps), automatically extract the artist and song title, download the highest resolution thumbnail, search open lyrics databases (LRCLIB) with YouTube captions fallback, and embed them directly into the MP3 file using ID3v2 tags (`USLT` lyrics and `APIC` cover art):
 
 ```javascript
 import { YoutubeDL } from './src/index.js';
@@ -221,12 +221,33 @@ const result = await ydl.extract_audio(url, {
   artist: 'Warriyo feat. Laura Brehm',        // Custom artist (optional, auto-parsed if omitted)
   title: 'Mortals',                           // Custom title (optional, auto-parsed if omitted)
   album: 'NCS Release',                       // Album tag (optional)
-  embed_thumbnail: true                       // Download & embed thumbnail as ID3 album cover
+  embed_thumbnail: true,                      // Download & embed thumbnail as ID3 album cover
+  embed_lyrics: true,                         // Search & embed lyrics into MP3 ID3 tags
+  write_lrc: true                             // Save synchronized .lrc file alongside the MP3
 });
 
 console.log('Saved to:', result.filename);
 console.log('Embedded Artist:', result.artist);
 console.log('Embedded Title:', result.title);
+console.log('Synchronized LRC file:', result.lrc_file);
+```
+
+#### Fetching Lyrics Directly (`get_lyrics`):
+
+You can also fetch synchronized (.lrc) and plain lyrics directly without downloading audio:
+
+```javascript
+import { YoutubeDL } from './src/index.js';
+
+const ydl = new YoutubeDL();
+
+// Method A: By video URL
+const lyrics1 = await ydl.get_lyrics('https://www.youtube.com/watch?v=yJg-Y5byMMw');
+console.log(lyrics1.plainLyrics);
+console.log(lyrics1.syncedLyrics); // Timed [mm:ss.xx] format
+
+// Method B: By song query
+const lyrics2 = await ydl.get_lyrics('Warriyo - Mortals');
 ```
 
 ---

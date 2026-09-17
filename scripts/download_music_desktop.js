@@ -60,13 +60,22 @@ async function main() {
     artist: 'Warriyo feat. Laura Brehm',
     title: 'Mortals',
     album: 'NCS Release',
-    embed_thumbnail: true
+    embed_thumbnail: true,
+    embed_lyrics: true,
+    write_lrc: true
   });
 
   console.log('\n=== Download Complete! ===');
   console.log('Audio file saved to Desktop:', result.filename);
   console.log('Embedded Artist:', result.artist);
   console.log('Embedded Title:', result.title);
+  if (result.lyrics) {
+    console.log('\nEmbedded Lyrics (first lines):');
+    console.log(result.lyrics.split('\n').slice(0, 4).join('\n') + '\n...');
+  }
+  if (result.lrc_file) {
+    console.log('Synchronized .lrc file saved to:', result.lrc_file);
+  }
 }
 
 main().catch((err) => {

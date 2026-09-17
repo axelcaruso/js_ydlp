@@ -99,16 +99,18 @@ export class YoutubeBaseInfoExtractor extends InfoExtractor {
    * @param {object} payload - Request payload data.
    * @param {Record<string, string>} [headers] - Additional HTTP headers.
    * @param {string} [apiKey] - Optional custom Innertube API key.
+   * @param {string} [visitorData] - Optional session visitorData token extracted from ytcfg.
    * @returns {Promise<any>}
    */
-  async _call_innertube(endpoint, clientName = 'ANDROID', payload = {}, headers = {}, apiKey = null) {
+  async _call_innertube(endpoint, clientName = 'ANDROID', payload = {}, headers = {}, apiKey = null, visitorData = null) {
     const clientConfig = INNERTUBE_CLIENTS[clientName] || INNERTUBE_CLIENTS.ANDROID;
     const body = {
       context: {
         client: {
           hl: 'en',
           gl: 'US',
-          ...clientConfig
+          ...clientConfig,
+          ...(visitorData ? { visitorData } : {})
         },
         user: {
           lockedSafetyMode: false

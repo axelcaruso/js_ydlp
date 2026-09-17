@@ -33,6 +33,7 @@ import { get_suitable_downloader } from './downloader/index.js';
 import { sanitize_filename, format_bytes } from './utils/formatting.js';
 import { determine_ext } from './utils/networking.js';
 import { DownloadError, ExtractorError } from './utils/common.js';
+import { LyricsProvider } from './utils/lyrics.js';
 import { FFmpegPostProcessor } from './postprocessor/ffmpeg.js';
 
 export const DEFAULT_OUTTMPL = '%(title)s [%(id)s].%(ext)s';
@@ -563,7 +564,36 @@ export class YoutubeDL {
   }
 
   /**
-   * Downloads a media URL and extracts its audio track (music) with embedded thumbnail and metadata.
+   * Fetches lyrics for a track or video URL.
+   * Searches open lyrics databases (LRCLIB) and falls back to YouTube caption tracks.
+   *
+   * @param {string|object} urlOrInfo - Video URL, media info object, or search query.
+   * @param {object} [options]
+   * @param {string} [options.artist] - Explicit artist name.
+   * @param {string} [options.title] - Explicit track title.
+   * @param {string} [options.album] - Explicit album name.
+   * @returns {Promise<{ plainLyrics: string|null, syncedLyrics: string|null, artist: string, title: string, source: string }|null>}
+   */
+  async get_lyrics(urlOrInfo, options = {}) {
+    const lyricsProvider = new LyricsProvider({ director: this.director });
+
+    if (typeof urlOrInfo === 'string') {
+      if (urlOrInfo.startsWith('http://') || urlOrInfo.startsWith('https://')) {
+        const info = await this.extract_info(urlOrInfo, { download: false });
+        return lyricsProvider.getLyrics(info, options);
+      }
+      return lyricsProvider.getLyrics({ title: urlOrInfo }, options);
+    }
+
+    if (urlOrInfo && typeof urlOrInfo === 'object') {
+      return lyricsProvider.getLyrics(urlOrInfo, options);
+    }
+
+    return null;
+  }
+
+  /**
+   * Downloads a media URL and extracts its audio track (music) with embedded thumbnail, metadata, and lyrics.
    * Equivalent to yt-dlp -x --embed-thumbnail --add-metadata.
    *
    * @param {string} url - Media URL.
@@ -576,8 +606,11 @@ export class YoutubeDL {
    * @param {string} [options.album] - Custom album name.
    * @param {string} [options.cover] - Custom cover image URL or local path.
    * @param {boolean} [options.embed_thumbnail=true] - Whether to embed cover art image.
+   * @param {boolean} [options.embed_lyrics=true] - Whether to search and embed lyrics into audio file tags.
+   * @param {boolean} [options.write_lrc=false] - Whether to save synchronized .lrc file alongside audio.
+   * @param {string|boolean} [options.lyrics] - Custom lyrics string or boolean flag to trigger search.
    * @param {Record<string, string>} [options.metadata] - Additional ID3 metadata tags.
-   * @returns {Promise<{ filename: string, info: object, artist: string, title: string }>}
+   * @returns {Promise<{ filename: string, info: object, artist: string, title: string, lyrics: string|null, synced_lyrics: string|null, lrc_file: string|null }>}
    */
   async extract_audio(url, options = {}) {
     const targetPath = options.outtmpl || '%(title)s.mp3';
@@ -627,12 +660,46 @@ export class YoutubeDL {
       }
     }
 
+    // 4. Fetch lyrics if requested or enabled
+    let lyricsResult = null;
+    let lrcFilePath = null;
+    const shouldFetchLyrics = Boolean(
+      options.lyrics || options.embed_lyrics === true || options.write_lrc === true
+    );
+
+    if (shouldFetchLyrics) {
+      if (typeof options.lyrics === 'string' && options.lyrics.trim() !== '') {
+        lyricsResult = {
+          plainLyrics: options.lyrics,
+          syncedLyrics: null,
+          artist,
+          title,
+          source: 'custom'
+        };
+      } else {
+        this.to_screen(`[extract_audio] Searching lyrics for: ${artist} - ${title}`);
+        const lyricsProvider = new LyricsProvider({ director: this.director });
+        lyricsResult = await lyricsProvider.getLyrics(info, { artist, title, album });
+        if (lyricsResult && (lyricsResult.plainLyrics || lyricsResult.syncedLyrics)) {
+          this.to_screen(`[extract_audio] Lyrics found from ${lyricsResult.source}`);
+        } else {
+          this.to_screen('[extract_audio] No lyrics found');
+        }
+      }
+    }
+
     const metadataTags = {
       artist,
       title,
       album,
       ...options.metadata
     };
+
+    if (lyricsResult) {
+      if (options.embed_lyrics !== false && (lyricsResult.plainLyrics || lyricsResult.syncedLyrics)) {
+        metadataTags.lyrics = lyricsResult.plainLyrics || lyricsResult.syncedLyrics;
+      }
+    }
 
     let tmpVideoFile = null;
 
@@ -654,7 +721,21 @@ export class YoutubeDL {
           await ffmpeg.embedMetadata(destFilename, { coverPath: tmpCoverFile, metadata: metadataTags });
         }
 
-        return { filename: destFilename, info, artist, title };
+        if (options.write_lrc && lyricsResult && (lyricsResult.syncedLyrics || lyricsResult.plainLyrics)) {
+          lrcFilePath = destFilename.replace(/\.[^.]+$/, '') + '.lrc';
+          fs.writeFileSync(lrcFilePath, lyricsResult.syncedLyrics || lyricsResult.plainLyrics, 'utf8');
+          this.to_screen(`[extract_audio] Saved lyrics to: ${lrcFilePath}`);
+        }
+
+        return {
+          filename: destFilename,
+          info,
+          artist,
+          title,
+          lyrics: lyricsResult?.plainLyrics || null,
+          synced_lyrics: lyricsResult?.syncedLyrics || null,
+          lrc_file: lrcFilePath
+        };
       }
 
       // Otherwise, download the best format with audio (e.g. format 18 MP4) to temporary file and extract audio
@@ -680,19 +761,28 @@ export class YoutubeDL {
       fs.mkdirSync(path.dirname(path.resolve(finalAudioPath)), { recursive: true });
 
       const ffmpeg = new FFmpegPostProcessor();
-      this.to_screen(`[extract_audio] Extracting audio with cover art & metadata to: ${finalAudioPath}`);
+      this.to_screen(`[extract_audio] Extracting audio with cover art, metadata & lyrics to: ${finalAudioPath}`);
       await ffmpeg.extractAudio(tmpVideoFile, finalAudioPath, {
         acodec: options.acodec,
         coverPath: tmpCoverFile,
         metadata: metadataTags
       });
 
+      if (options.write_lrc && lyricsResult && (lyricsResult.syncedLyrics || lyricsResult.plainLyrics)) {
+        lrcFilePath = finalAudioPath.replace(/\.[^.]+$/, '') + '.lrc';
+        fs.writeFileSync(lrcFilePath, lyricsResult.syncedLyrics || lyricsResult.plainLyrics, 'utf8');
+        this.to_screen(`[extract_audio] Saved lyrics to: ${lrcFilePath}`);
+      }
+
       this.to_screen(`[extract_audio] 100% of ${finalAudioPath}`);
       return {
         filename: finalAudioPath,
         info,
         artist,
-        title
+        title,
+        lyrics: lyricsResult?.plainLyrics || null,
+        synced_lyrics: lyricsResult?.syncedLyrics || null,
+        lrc_file: lrcFilePath
       };
     } finally {
       // Clean up temporary video and cover files

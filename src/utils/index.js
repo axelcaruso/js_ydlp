@@ -29,3 +29,4 @@ export * from './traversal.js';
 export * from './formatting.js';
 export * from './date.js';
 export * from './networking.js';
+export * from './lyrics.js';
