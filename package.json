@@ -1,0 +1,36 @@
+{
+  "name": "js_ydlp",
+  "version": "1.0.0",
+  "description": "A high-performance 1:1 Vanilla JavaScript port of yt-dlp to use as a local library",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./utils": "./src/utils/index.js",
+    "./networking": "./src/networking/index.js",
+    "./downloader": "./src/downloader/index.js",
+    "./extractor": "./src/extractor/index.js",
+    "./postprocessor": "./src/postprocessor/index.js"
+  },
+  "scripts": {
+    "test": "node --test test/**/*.test.js",
+    "headers:check": "node scripts/header-generator.js --check",
+    "headers:apply": "node scripts/header-generator.js --apply"
+  },
+  "keywords": [
+    "yt-dlp",
+    "youtube",
+    "video",
+    "audio",
+    "downloader",
+    "extractor",
+    "vanilla-js",
+    "innertube",
+    "media"
+  ],
+  "author": "Axel Caruso",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

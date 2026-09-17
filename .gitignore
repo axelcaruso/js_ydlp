@@ -1,0 +1,42 @@
+# Local reference source from yt-dlp
+yt-dlp-master/
+
+# Dependencies
+node_modules/
+
+# Output and build directories
+dist/
+build/
+downloads/
+temp/
+tmp/
+
+# Download artifacts and partials
+*.part
+*.ytdl
+*.aria2
+
+# Logs and debug files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE and editor settings
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Test coverage
+coverage/
+.nyc_output/

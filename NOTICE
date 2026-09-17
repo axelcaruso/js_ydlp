@@ -1,0 +1,22 @@
+js_ydlp
+Copyright (c) 2026 Axel Caruso and js_ydlp contributors.
+
+This product includes software derived from and inspired by yt-dlp
+(https://github.com/yt-dlp/yt-dlp), developed by the yt-dlp contributors.
+Original yt-dlp is dedicated to the public domain under the Unlicense.
+
+========================================================================
+OPEN AI STATEMENT & POLICY
+========================================================================
+Unlike upstream yt-dlp which explicitly prohibits the use of Artificial
+Intelligence in development, the js_ydlp project OPENLY SUPPORTS,
+WELCOMES, AND EMBRACES the use of Artificial Intelligence (AI), Machine
+Learning models, Large Language Models (LLMs), and automated coding agents
+in its architectural design, source code generation, refactoring,
+debugging, documentation, and maintenance.
+
+We believe AI-assisted pair programming and agentic workflows represent
+a revolutionary advancement in software engineering, enabling superior
+code clarity, higher performance, comprehensive testing, and rapid evolution.
+Contributions created with or assisted by AI are first-class citizens in
+this project.
