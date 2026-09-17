@@ -40,7 +40,10 @@ export class GenericIE extends InfoExtractor {
 
   async _real_extract(url) {
     const ext = determine_ext(url);
-    const mediaExtensions = new Set(['mp4', 'webm', 'mkv', 'flv', 'ogg', 'ogv', 'mp3', 'm4a', 'aac', 'wav', 'opus']);
+    const mediaExtensions = new Set([
+      'mp4', 'webm', 'mkv', 'flv', 'ogg', 'ogv', 'mp3', 'm4a', 'aac', 'wav', 'opus',
+      'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'ico', 'avif'
+    ]);
 
     // 1. Direct media URL detection
     if (mediaExtensions.has(ext)) {

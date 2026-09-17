@@ -86,6 +86,40 @@ export class Response {
   }
 
   /**
+   * Reads the response body as raw bytes (Uint8Array/Buffer).
+   * @returns {Promise<Uint8Array>}
+   */
+  async bytes() {
+    if (!this.body) {
+      return this._rawText ? Buffer.from(this._rawText, 'utf8') : new Uint8Array(0);
+    }
+    if (typeof this.body.getReader === 'function') {
+      const reader = this.body.getReader();
+      const chunks = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      return Buffer.concat(chunks);
+    }
+    const chunks = [];
+    for await (const chunk of this.body) {
+      chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    }
+    return Buffer.concat(chunks);
+  }
+
+  /**
+   * Reads response body as an ArrayBuffer.
+   * @returns {Promise<ArrayBuffer>}
+   */
+  async arrayBuffer() {
+    const b = await this.bytes();
+    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+  }
+
+  /**
    * Reads and parses response body as JSON.
    * @returns {Promise<any>}
    */

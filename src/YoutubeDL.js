@@ -24,12 +24,14 @@
  * ====================================================================
  */
 
+import fs from 'node:fs';
 import path from 'node:path';
 import { RequestDirector } from './networking/RequestDirector.js';
 import { CookieJar } from './networking/CookieJar.js';
 import { get_info_extractor, gen_extractor_classes, InfoExtractor } from './extractor/index.js';
 import { get_suitable_downloader } from './downloader/index.js';
-import { sanitize_filename } from './utils/formatting.js';
+import { sanitize_filename, format_bytes } from './utils/formatting.js';
+import { determine_ext } from './utils/networking.js';
 import { DownloadError, ExtractorError } from './utils/common.js';
 
 export const DEFAULT_OUTTMPL = '%(title)s [%(id)s].%(ext)s';
@@ -174,25 +176,79 @@ export class YoutubeDL {
       return null;
     }
 
+    if (typeof selector === 'function') {
+      return formats.find(selector) || null;
+    }
+
     const cleanSelector = selector ? selector.trim() : 'best';
 
     // 1. Direct format_id match
     const directMatch = formats.find((f) => String(f.format_id) === cleanSelector);
     if (directMatch) return directMatch;
 
-    // 2. Worst format
+    // 2. Worst format overall
     if (cleanSelector === 'worst') {
       return formats[0];
     }
 
-    // 3. Best muxed video (or best overall)
-    // Filter formats with both video and audio if available
+    // 3. Best audio only (music track)
+    if (cleanSelector === 'bestaudio') {
+      const audioOnly = formats.filter(
+        (f) => (!f.vcodec || f.vcodec === 'none') && f.acodec && f.acodec !== 'none'
+      );
+      if (audioOnly.length > 0) {
+        return [...audioOnly].sort((a, b) => (a.tbr || a.abr || 0) - (b.tbr || b.abr || 0)).pop();
+      }
+    }
+
+    // 4. Worst audio only
+    if (cleanSelector === 'worstaudio') {
+      const audioOnly = formats.filter(
+        (f) => (!f.vcodec || f.vcodec === 'none') && f.acodec && f.acodec !== 'none'
+      );
+      if (audioOnly.length > 0) {
+        return [...audioOnly].sort((a, b) => (a.tbr || a.abr || 0) - (b.tbr || b.abr || 0))[0];
+      }
+    }
+
+    // 5. Best video only
+    if (cleanSelector === 'bestvideo') {
+      const videoOnly = formats.filter((f) => f.vcodec && f.vcodec !== 'none');
+      if (videoOnly.length > 0) {
+        return [...videoOnly].sort((a, b) => {
+          const resA = (a.height || 0) * 10000 + (a.width || 0);
+          const resB = (b.height || 0) * 10000 + (b.width || 0);
+          if (resA !== resB) return resA - resB;
+          return (a.tbr || 0) - (b.tbr || 0);
+        }).pop();
+      }
+    }
+
+    // 6. Worst video only
+    if (cleanSelector === 'worstvideo') {
+      const videoOnly = formats.filter((f) => f.vcodec && f.vcodec !== 'none');
+      if (videoOnly.length > 0) {
+        return [...videoOnly].sort((a, b) => {
+          const resA = (a.height || 0) * 10000 + (a.width || 0);
+          const resB = (b.height || 0) * 10000 + (b.width || 0);
+          if (resA !== resB) return resA - resB;
+          return (a.tbr || 0) - (b.tbr || 0);
+        })[0];
+      }
+    }
+
+    // 7. Best muxed video (with both video and audio)
     const muxed = formats.filter(
       (f) => f.vcodec && f.vcodec !== 'none' && f.acodec && f.acodec !== 'none'
     );
 
-    if (muxed.length > 0) {
-      return muxed[muxed.length - 1];
+    if (muxed.length > 0 && cleanSelector === 'best') {
+      return [...muxed].sort((a, b) => {
+        const resA = (a.height || 0) * 10000 + (a.width || 0);
+        const resB = (b.height || 0) * 10000 + (b.width || 0);
+        if (resA !== resB) return resA - resB;
+        return (a.tbr || 0) - (b.tbr || 0);
+      }).pop();
     }
 
     // Fallback to highest quality stream
@@ -295,5 +351,213 @@ export class YoutubeDL {
       }
     }
     return hasError ? 1 : 0;
+  }
+
+  /**
+   * Formats and prints or returns a structured table of all available streams.
+   * Equivalent to `yt-dlp -F` / `--list-formats`.
+   * Displays format ID, extension, resolution, FPS, filesize, video codec, and audio codec.
+   *
+   * @param {object} infoDict - Info dictionary returned by extract_info.
+   * @param {boolean} [print=true] - Whether to print to stdout / screen logger.
+   * @returns {Array<{format_id: string, ext: string, resolution: string, fps: number|null, filesize: string, vcodec: string, acodec: string, note: string, raw: object}>}
+   */
+  list_formats(infoDict, print = true) {
+    if (!infoDict || !Array.isArray(infoDict.formats) || infoDict.formats.length === 0) {
+      if (print) this.to_screen(`[info] No formats found for ${infoDict?.title || 'media'}`);
+      return [];
+    }
+
+    const rows = infoDict.formats.map((f) => {
+      const width = f.width;
+      const height = f.height;
+      let res = 'audio only';
+      if (width && height) {
+        res = `${width}x${height}`;
+      } else if (height) {
+        res = `${height}p`;
+      } else if (f.vcodec && f.vcodec !== 'none') {
+        res = 'video only';
+      }
+
+      const fpsStr = f.fps ? String(f.fps) : '-';
+      const sizeStr = f.filesize ? format_bytes(f.filesize) : (f.tbr ? `~${Math.round(f.tbr)}k` : 'unknown');
+      const vcodec = f.vcodec || 'none';
+      const acodec = f.acodec || 'none';
+      const note = f.format_note || '';
+
+      return {
+        format_id: String(f.format_id),
+        ext: f.ext || 'unknown',
+        resolution: res,
+        fps: f.fps || null,
+        filesize: sizeStr,
+        vcodec,
+        acodec,
+        note,
+        raw: f
+      };
+    });
+
+    if (print) {
+      this.to_screen(`[info] Available formats for ${infoDict.title || infoDict.id}:`);
+      this.to_screen('ID     EXT   RESOLUTION   FPS  FILESIZE    VCODEC          ACODEC          MORE INFO');
+      this.to_screen('-----------------------------------------------------------------------------------------');
+      for (const r of rows) {
+        const idCol = r.format_id.padEnd(6);
+        const extCol = r.ext.padEnd(5);
+        const resCol = r.resolution.padEnd(12);
+        const fpsCol = r.fps ? String(r.fps).padEnd(4) : '-   ';
+        const sizeCol = r.filesize.padEnd(11);
+        const vcodecCol = r.vcodec.padEnd(15);
+        const acodecCol = r.acodec.padEnd(15);
+        this.to_screen(`${idCol} ${extCol} ${resCol} ${fpsCol} ${sizeCol} ${vcodecCol} ${acodecCol} ${r.note}`);
+      }
+    }
+
+    return rows;
+  }
+
+  /**
+   * Downloads a video stream and its music/audio stream separately.
+   * Useful when downloading pristine adaptive streams without merging, or extracting audio track separately.
+   *
+   * @param {string} url - Target URL.
+   * @param {object} [options]
+   * @param {string|Function} [options.videoFormat='bestvideo'] - Format selector for video.
+   * @param {string|Function} [options.audioFormat='bestaudio'] - Format selector for audio.
+   * @param {string} [options.videoOuttmpl] - Output template or filename for video.
+   * @param {string} [options.audioOuttmpl] - Output template or filename for audio.
+   * @returns {Promise<{video: object, audio: object}>}
+   */
+  async download_separate(url, options = {}) {
+    const videoSelector = options.videoFormat || 'bestvideo';
+    const audioSelector = options.audioFormat || 'bestaudio';
+
+    // Extract once without download
+    const info = await this.extract_info(url, { download: false });
+    if (!info.formats || info.formats.length === 0) {
+      throw new Error(`No formats available for ${url}`);
+    }
+
+    // 1. List formats with resolutions & codecs
+    this.list_formats(info, true);
+
+    // 2. Select video format
+    const chosenVideo = this.select_format(info.formats, videoSelector);
+    if (!chosenVideo) {
+      throw new Error(`Could not find matching video format for selector: ${videoSelector}`);
+    }
+
+    // 3. Select audio format
+    const chosenAudio = this.select_format(info.formats, audioSelector);
+    if (!chosenAudio) {
+      throw new Error(`Could not find matching audio format for selector: ${audioSelector}`);
+    }
+
+    const videoRes = chosenVideo.width && chosenVideo.height ? `${chosenVideo.width}x${chosenVideo.height}` : (chosenVideo.format_note || 'unknown');
+    this.to_screen(`[download_separate] Selected video format: ${chosenVideo.format_id} (${videoRes}, codec: ${chosenVideo.vcodec})`);
+    this.to_screen(`[download_separate] Selected audio format: ${chosenAudio.format_id} (codec: ${chosenAudio.acodec}, bitrate: ${chosenAudio.tbr || 'N/A'}k)`);
+
+    // Download video stream
+    const videoInfo = {
+      ...info,
+      selected_format: chosenVideo,
+      url: chosenVideo.url,
+      ext: chosenVideo.ext || 'mp4',
+      format_id: chosenVideo.format_id
+    };
+    const videoFilename = options.videoOuttmpl
+      ? options.videoOuttmpl
+      : this.prepare_filename({ ...videoInfo, title: `${info.title}_video` });
+
+    const VideoDownloaderClass = get_suitable_downloader(videoInfo, this.params);
+    const videoDownloader = new VideoDownloaderClass(this, {
+      ...this.params,
+      progress_hooks: this._progressHooks
+    });
+    this.to_screen(`[download] Downloading video stream to: ${videoFilename}`);
+    await videoDownloader.download(videoFilename, videoInfo);
+    videoInfo._filename = videoFilename;
+
+    // Download audio stream (music)
+    const audioInfo = {
+      ...info,
+      selected_format: chosenAudio,
+      url: chosenAudio.url,
+      ext: chosenAudio.ext || 'm4a',
+      format_id: chosenAudio.format_id
+    };
+    const audioFilename = options.audioOuttmpl
+      ? options.audioOuttmpl
+      : this.prepare_filename({ ...audioInfo, title: `${info.title}_music` });
+
+    const AudioDownloaderClass = get_suitable_downloader(audioInfo, this.params);
+    const audioDownloader = new AudioDownloaderClass(this, {
+      ...this.params,
+      progress_hooks: this._progressHooks
+    });
+    this.to_screen(`[download] Downloading music/audio stream to: ${audioFilename}`);
+    await audioDownloader.download(audioFilename, audioInfo);
+    audioInfo._filename = audioFilename;
+
+    return {
+      video: videoInfo,
+      audio: audioInfo
+    };
+  }
+
+  /**
+   * Downloads an image from a URL or video thumbnail.
+   *
+   * @param {string|object} urlOrInfo - Image URL or media info dictionary containing thumbnails.
+   * @param {string} [targetPath] - Output file path or filename.
+   * @returns {Promise<{ filename: string, bytes: number }>}
+   */
+  async download_image(urlOrInfo, targetPath = null) {
+    let imageUrl = null;
+    let baseName = 'image';
+
+    if (typeof urlOrInfo === 'string') {
+      imageUrl = urlOrInfo;
+      const u = new URL(imageUrl);
+      baseName = sanitize_filename(u.pathname.split('/').pop() || 'image');
+    } else if (urlOrInfo && typeof urlOrInfo === 'object') {
+      baseName = sanitize_filename(urlOrInfo.title || urlOrInfo.id || 'thumbnail');
+      if (Array.isArray(urlOrInfo.thumbnails) && urlOrInfo.thumbnails.length > 0) {
+        const sortedThumbs = [...urlOrInfo.thumbnails].sort((a, b) => (b.width || 0) - (a.width || 0));
+        imageUrl = sortedThumbs[0].url;
+      } else if (urlOrInfo.thumbnail) {
+        imageUrl = urlOrInfo.thumbnail;
+      }
+    }
+
+    if (!imageUrl) {
+      throw new Error('No valid image URL found to download.');
+    }
+
+    const ext = determine_ext(imageUrl) || 'jpg';
+    let filename = targetPath;
+    if (!filename) {
+      filename = `${baseName}.${ext}`;
+    }
+
+    this.to_screen(`[image] Downloading image from: ${imageUrl}`);
+    this.to_screen(`[image] Destination: ${filename}`);
+
+    const res = await this.director.send(imageUrl);
+    if (!res.ok) {
+      throw new Error(`Failed to download image (HTTP ${res.status}): ${imageUrl}`);
+    }
+    const arrayBuf = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuf);
+    fs.mkdirSync(path.dirname(path.resolve(filename)), { recursive: true });
+    fs.writeFileSync(filename, buffer);
+    this.to_screen(`[image] 100% of ${filename} (${format_bytes(buffer.length)})`);
+
+    return {
+      filename,
+      bytes: buffer.length
+    };
   }
 }

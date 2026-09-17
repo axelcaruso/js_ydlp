@@ -297,7 +297,107 @@ async function testLinkedBundle(minBundlePath) {
       console.warn('  [\x1b[33mwarning\x1b[0m] Found remaining comments in minified bundle.');
     }
   }
-  console.log('  [\x1b[32mlinking-test\x1b[0m] [4/4] Verified complete comment stripping and code density.');
+  console.log('  [\x1b[32mlinking-test\x1b[0m] [4/5] Verified complete comment stripping and code density.');
+
+  // 5. Obligatory build test: List resolutions/codecs, choose format, download video & music separately
+  const http = await import('node:http');
+  const path = await import('node:path');
+  const tmpDir = path.resolve('test/tmp_bundle_sep');
+  fs.mkdirSync(tmpDir, { recursive: true });
+
+  const mockVid = Buffer.alloc(1024, 'V');
+  const mockAud = Buffer.alloc(512, 'A');
+
+  const srv = http.createServer((req, res) => {
+    if (req.url === '/v.mp4') {
+      res.writeHead(200, { 'Content-Type': 'video/mp4', 'Content-Length': mockVid.length });
+      res.end(mockVid);
+    } else if (req.url === '/a.m4a') {
+      res.writeHead(200, { 'Content-Type': 'audio/mp4', 'Content-Length': mockAud.length });
+      res.end(mockAud);
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+
+  await new Promise((resolve) => srv.listen(0, '127.0.0.1', resolve));
+  const srvPort = srv.address().port;
+  const srvBase = `http://127.0.0.1:${srvPort}`;
+
+  class BuildMockIE extends bundle.InfoExtractor {
+    static IE_NAME = 'build_mock';
+    static _VALID_URL = /http:\/\/127\.0\.0\.1:[0-9]+\/media/;
+    async _real_extract(url) {
+      return {
+        id: 'build_track',
+        title: 'Build Integrity Track',
+        formats: [
+          {
+            format_id: 'vid-1080p',
+            url: `${srvBase}/v.mp4`,
+            ext: 'mp4',
+            width: 1920,
+            height: 1080,
+            fps: 60,
+            vcodec: 'avc1.64002a',
+            acodec: 'none',
+            tbr: 4500,
+            filesize: mockVid.length,
+            format_note: '1080p60'
+          },
+          {
+            format_id: 'aud-aac',
+            url: `${srvBase}/a.m4a`,
+            ext: 'm4a',
+            width: null,
+            height: null,
+            fps: null,
+            vcodec: 'none',
+            acodec: 'mp4a.40.2',
+            tbr: 128,
+            filesize: mockAud.length,
+            format_note: 'music AAC'
+          }
+        ]
+      };
+    }
+  }
+
+  const buildYdl = new bundle.YoutubeDL({ quiet: true });
+  buildYdl._ies.unshift(BuildMockIE);
+
+  try {
+    const info = await buildYdl.extract_info(`${srvBase}/media`, { download: false });
+    const rows = buildYdl.list_formats(info, false);
+    if (!rows.some((r) => r.resolution === '1920x1080' && r.vcodec === 'avc1.64002a')) {
+      throw new Error('[linking-test] list_formats failed to report video resolution and codec');
+    }
+    if (!rows.some((r) => r.resolution === 'audio only' && r.acodec === 'mp4a.40.2')) {
+      throw new Error('[linking-test] list_formats failed to report audio codec');
+    }
+
+    const vDest = path.join(tmpDir, 'v_out.mp4');
+    const aDest = path.join(tmpDir, 'a_out.m4a');
+    await buildYdl.download_separate(`${srvBase}/media`, {
+      videoFormat: 'bestvideo',
+      audioFormat: 'bestaudio',
+      videoOuttmpl: vDest,
+      audioOuttmpl: aDest
+    });
+
+    if (!fs.existsSync(vDest) || fs.statSync(vDest).size !== mockVid.length) {
+      throw new Error('[linking-test] Video separate download failed or invalid size');
+    }
+    if (!fs.existsSync(aDest) || fs.statSync(aDest).size !== mockAud.length) {
+      throw new Error('[linking-test] Music/Audio separate download failed or invalid size');
+    }
+  } finally {
+    await new Promise((resolve) => srv.close(resolve));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+
+  console.log('  [\x1b[32mlinking-test\x1b[0m] [5/5] Verified listing resolutions/codecs and downloading video & music separately.');
   console.log('\x1b[32m[PASSED] Linked bundle verified and passed all runtime integrity checks.\x1b[0m\n');
 }
 
