@@ -265,7 +265,7 @@ export class YoutubeDL {
    * @returns {string} Fully expanded and sanitized filename.
    */
   prepare_filename(infoDict) {
-    const tmpl = this.params.outtmpl || DEFAULT_OUTTMPL;
+    const tmpl = infoDict.outtmpl || this.params.outtmpl || DEFAULT_OUTTMPL;
 
     let filename = tmpl.replace(/%\(([\w.]+)\)s/g, (_, key) => {
       let val = infoDict[key];
@@ -807,7 +807,7 @@ export class YoutubeDL {
       if (!finalAudioPath) {
         finalAudioPath = this.prepare_filename({ ...info, ext: 'mp3' });
       } else if (finalAudioPath.includes('%(')) {
-        finalAudioPath = this.prepare_filename({ ...info, outtmpl: finalAudioPath });
+        finalAudioPath = this.prepare_filename({ ...info, ext: 'mp3', outtmpl: finalAudioPath });
       }
       fs.mkdirSync(path.dirname(path.resolve(finalAudioPath)), { recursive: true });
 
