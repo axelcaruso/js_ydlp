@@ -97,9 +97,30 @@ export class CookieJar {
 
   /**
    * Adds or updates a cookie in the jar.
-   * @param {Cookie} cookie
+   * Accepts a Cookie instance, a cookie object, or (name, value, domain, options).
+   *
+   * @param {Cookie|string|object} cookieOrName
+   * @param {string} [value]
+   * @param {string} [domain='']
+   * @param {object} [options={}]
    */
-  setCookie(cookie) {
+  setCookie(cookieOrName, value = '', domain = '', options = {}) {
+    let cookie;
+    if (cookieOrName instanceof Cookie) {
+      cookie = cookieOrName;
+    } else if (typeof cookieOrName === 'object' && cookieOrName !== null && 'name' in cookieOrName) {
+      cookie = new Cookie(cookieOrName);
+    } else {
+      cookie = new Cookie({
+        name: String(cookieOrName),
+        value: String(value),
+        domain: domain ? (domain.startsWith('.') ? domain : `.${domain}`) : '',
+        path: options.path || '/',
+        expires: options.expires ? Math.floor(new Date(options.expires).getTime() / 1000) : null,
+        secure: options.secure ?? false,
+        httpOnly: options.httpOnly ?? false
+      });
+    }
     // Remove previous instance if name, domain, and path match
     this.cookies = this.cookies.filter(
       (c) => !(c.name === cookie.name && c.domain === cookie.domain && c.path === cookie.path)

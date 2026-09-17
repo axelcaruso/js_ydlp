@@ -22,7 +22,7 @@ A high-performance, 1:1 port of [yt-dlp](https://github.com/yt-dlp/yt-dlp) in pu
 - **Pure Vanilla JS / Node.js ESM**: Zero runtime dependencies. Runs directly in Node.js 18+.
 - **1:1 Architectural Port of yt-dlp**:
   - `YoutubeDL` main orchestrator.
-  - `InfoExtractor` hierarchy (`YoutubeIE`, `YoutubeBaseInfoExtractor`, `GenericIE`).
+  - `InfoExtractor` hierarchy (`YoutubeIE`, `TikTokIE`, `YoutubeBaseInfoExtractor`, `GenericIE`).
   - `HttpFD` downloader with byte-range resume and real-time progress hooks.
   - `RequestDirector` and `CookieJar` (full Netscape cookie file import/export).
   - `traverse_obj` data extractor matching yt-dlp path querying with wildcards and type filters.
@@ -30,6 +30,12 @@ A high-performance, 1:1 port of [yt-dlp](https://github.com/yt-dlp/yt-dlp) in pu
   - Native client cascade (`ANDROID` $\to$ `IOS` $\to$ `WEB`) bypassing bot-detection barriers without requiring account login.
   - Native V8 signature deciphering (`YoutubeSigSolver`).
   - PO-Token provider integration (`PoTokenProvider`).
+- **TikTok Unwatermarked Video Downloading**:
+  - Native 1:1 port of yt-dlp's `TikTokIE`.
+  - Built-in WAF challenge solver using sub-millisecond SHA-256 Proof-of-Work.
+  - Automatically extracts direct, pristine, unwatermarked streams (`playAddr` and adaptive streams from `bitrateInfo`).
+  - Watermarked fallback (`downloadAddr`) is deprioritized matching yt-dlp.
+  - Supports standard video URLs, short URLs (`vm.tiktok.com`, `vt.tiktok.com`, `tiktok.com/t/`), and embed URLs.
 - **Format Inspection & Selection**:
   - Equivalent to `yt-dlp -F` / `--list-formats`: lists resolutions, FPS, bitrates, video codecs (`vcodec`), and audio codecs (`acodec`).
   - Format selectors: `best`, `worst`, `bestvideo`, `bestaudio`, `worstvideo`, `worstaudio`, direct format IDs, or custom predicate functions.
@@ -38,7 +44,7 @@ A high-performance, 1:1 port of [yt-dlp](https://github.com/yt-dlp/yt-dlp) in pu
 - **Image & Thumbnail Downloads**:
   - Download video thumbnails or direct image URLs (`.jpg`, `.png`, `.webp`, `.svg`, `.gif`) via `download_image()`.
 - **Ninja-Style Build System (`build.cmd` / `build.sh`)**:
-  - Pre-flight automated tests (`33/33`).
+  - Pre-flight automated tests (`41/41`).
   - Unified linking with dependency scanning.
   - Aggressive minification with Terser (variable mangling, dead code elimination, 100% comment stripping).
   - Post-linking integrity tests, including an obligatory build test that downloads video and music separately.
@@ -252,6 +258,36 @@ const lyrics2 = await ydl.get_lyrics('Warriyo - Mortals');
 
 ---
 
+### 7. Downloading TikTok Videos Without Watermark
+
+`js_ydlp` includes a 1:1 port of yt-dlp's `TikTokIE` with an automatic SHA-256 Proof-of-Work WAF solver. It automatically prioritizes pristine unwatermarked playback streams over watermarked downloads (`download_watermarked` has preference `-2`):
+
+```javascript
+import { YoutubeDL } from './src/index.js';
+
+const ydl = new YoutubeDL({
+  outtmpl: 'downloads/tiktok_%(id)s.%(ext)s'
+});
+
+// Supports standard, short (vm.tiktok.com, vt.tiktok.com, /t/), and embed URLs
+const tiktokUrl = 'https://www.tiktok.com/@tiktok/video/7106594312292453675';
+
+// 1. Inspect unwatermarked formats and audio track
+const info = await ydl.extract_info(tiktokUrl, { download: false });
+ydl.list_formats(info, true);
+
+// 2. Download the unwatermarked video (selected automatically by 'best')
+await ydl.download([tiktokUrl]);
+
+// 3. Or extract only the music track with embedded metadata
+await ydl.extract_audio(tiktokUrl, {
+  outtmpl: 'downloads/%(title)s.mp3',
+  embed_thumbnail: true
+});
+```
+
+---
+
 ## Cross-Platform Build System
 
 `js_ydlp` includes a Ninja-style CLI build system that unifies all modules into a single minified bundle with **100% comment stripping and variable mangling**.
@@ -274,15 +310,15 @@ chmod +x build.sh
 ```
 
 ### Build Pipeline Stages:
-1. **[1/7] Pre-flight Test Suite**: Runs all 33 unit and integration tests (`node --test`).
+1. **[1/7] Pre-flight Test Suite**: Runs all 41 unit and integration tests (`node --test`).
 2. **[2/7] Dependency Graph Scanner**: Discovers all source files in `src/`.
 3. **[3/7] Symbol Resolution**: Inlines dependencies and removes circular references.
 4. **[4/7] Ninja-Style Linking**:
    ```text
-   [linking] [1/27] src/downloader/common.js
-   [linking] [2/27] src/downloader/http.js
+   [linking] [1/29] src/downloader/common.js
+   [linking] [2/29] src/downloader/http.js
    ...
-   [linking] [27/27] src/YoutubeDL.js
+   [linking] [29/29] src/YoutubeDL.js
    ```
 5. **[5/7] Terser Minification**: Shortens local identifiers, eliminates dead code, and strips all comments except the Apache 2.0 + AI statement header.
 6. **[6/7] Post-Linking Integrity Verification**:

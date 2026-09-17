@@ -97,7 +97,7 @@ export class RequestDirector {
           headers: mergedHeaders.toObject(),
           body: ['GET', 'HEAD'].includes(req.method) ? undefined : body,
           signal: controller.signal,
-          redirect: 'follow'
+          redirect: options.redirect || req.extensions.redirect || 'follow'
         };
 
         const res = await fetch(req.url, fetchOptions);

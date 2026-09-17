@@ -25,6 +25,8 @@
  */
 
 import { Request } from '../networking/Request.js';
+import { RequestDirector } from '../networking/RequestDirector.js';
+import { CookieJar } from '../networking/CookieJar.js';
 import { ExtractorError, NO_DEFAULT, clean_html, unescapeHTML } from '../utils/common.js';
 import { HTTPHeaderDict } from '../utils/networking.js';
 
@@ -65,6 +67,34 @@ export class InfoExtractor {
   }
 
   /**
+   * CookieJar instance (inherited from YoutubeDL or local).
+   * @returns {CookieJar}
+   */
+  get cookiejar() {
+    if (this.ydl && this.ydl.cookiejar) {
+      return this.ydl.cookiejar;
+    }
+    if (!this._cookiejar) {
+      this._cookiejar = new CookieJar();
+    }
+    return this._cookiejar;
+  }
+
+  /**
+   * RequestDirector instance (inherited from YoutubeDL or local).
+   * @returns {RequestDirector}
+   */
+  get director() {
+    if (this.ydl && this.ydl.director) {
+      return this.ydl.director;
+    }
+    if (!this._director) {
+      this._director = new RequestDirector({ cookiejar: this.cookiejar });
+    }
+    return this._director;
+  }
+
+  /**
    * Checks whether this extractor handles the given URL.
    * @param {string} url
    * @returns {boolean}
@@ -83,36 +113,33 @@ export class InfoExtractor {
   }
 
   /**
-   * Sends an HTTP request through the central RequestDirector or native fetch.
+   * Logs a message to screen.
+   * @param {string} msg
+   */
+  to_screen(msg) {
+    if (this.ydl && this.ydl.to_screen) {
+      this.ydl.to_screen(msg);
+    }
+  }
+
+  /**
+   * Reports a warning message.
+   * @param {string} msg
+   */
+  report_warning(msg) {
+    if (this.ydl && this.ydl.report_warning) {
+      this.ydl.report_warning(msg);
+    }
+  }
+
+  /**
+   * Sends an HTTP request through the central RequestDirector.
    * @param {Request|string} reqOrUrl
    * @param {object} [options]
    * @returns {Promise<import('../networking/Response.js').Response>}
    */
   async _request(reqOrUrl, options = {}) {
-    if (this.ydl && this.ydl.director) {
-      return await this.ydl.director.send(reqOrUrl, options);
-    }
-    const req = typeof reqOrUrl === 'string' ? new Request(reqOrUrl, options) : reqOrUrl;
-    let body = req.data;
-    if (['GET', 'HEAD'].includes(req.method)) {
-      body = undefined;
-    } else if (body && typeof body === 'object' && !(body instanceof Uint8Array) && !(body instanceof URLSearchParams)) {
-      body = JSON.stringify(body);
-    }
-    const fetchRes = await fetch(req.url, {
-      method: req.method,
-      headers: req.headers.toObject(),
-      body
-    });
-    const text = await fetchRes.text();
-    return {
-      status: fetchRes.status,
-      ok: fetchRes.ok,
-      url: fetchRes.url,
-      headers: new HTTPHeaderDict(fetchRes.headers),
-      text: async () => text,
-      json: async () => JSON.parse(text)
-    };
+    return await this.director.send(reqOrUrl, options);
   }
 
   /**
@@ -123,14 +150,15 @@ export class InfoExtractor {
    * @param {string} [videoId] - Identifier for logging and errors.
    * @param {string} [note='Downloading webpage'] - Status message.
    * @param {string} [errnote='Unable to download webpage'] - Error message.
+   * @param {object} [options={}] - Additional request options.
    * @returns {Promise<string>}
    */
-  async _download_webpage(urlOrReq, videoId = '', note = 'Downloading webpage', errnote = 'Unable to download webpage') {
+  async _download_webpage(urlOrReq, videoId = '', note = 'Downloading webpage', errnote = 'Unable to download webpage', options = {}) {
     if (this.ydl && this.ydl.to_screen && note) {
       this.ydl.to_screen(`[${this.ie_key}] ${videoId ? `${videoId}: ` : ''}${note}`);
     }
     try {
-      const res = await this._request(urlOrReq);
+      const res = await this._request(urlOrReq, options);
       return await res.text();
     } catch (err) {
       throw new ExtractorError(`${errnote}: ${err.message}`, err);

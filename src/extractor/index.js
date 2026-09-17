@@ -27,16 +27,18 @@
 import { InfoExtractor } from './common.js';
 import { GenericIE } from './generic.js';
 import { YoutubeIE } from './youtube/video.js';
+import { TikTokIE } from './tiktok.js';
 
 export * from './common.js';
 export * from './generic.js';
 export * from './youtube/index.js';
+export * from './tiktok.js';
 
 /**
  * List of all registered Information Extractor classes.
  * Order represents default resolution priority.
  */
-export const EXTRACTORS = [YoutubeIE, GenericIE];
+export const EXTRACTORS = [YoutubeIE, TikTokIE, GenericIE];
 
 /**
  * Yields extractor classes sorted by descending priority weight.
