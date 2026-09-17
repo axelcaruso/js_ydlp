@@ -81,12 +81,15 @@ export class FFmpegPostProcessor extends PostProcessor {
   }
 
   /**
-   * Extracts audio from a media file to a standalone audio file.
+   * Extracts audio from a media file to a standalone audio file with optional metadata and cover art embedding.
    *
    * @param {string} inputPath - Input media file.
    * @param {string} outputPath - Output audio file.
    * @param {object} [options]
    * @param {string} [options.acodec] - Audio codec ('copy', 'libmp3lame', 'aac', etc.).
+   * @param {string} [options.coverPath] - Path to cover art image (jpg/png/webp) to embed.
+   * @param {Record<string, string>} [options.metadata] - Metadata key-values (artist, title, album, etc.).
+   * @param {string} [options.bitrate='192k'] - Audio bitrate for mp3 encoding.
    * @returns {Promise<string>} Output file path.
    */
   async extractAudio(inputPath, outputPath, options = {}) {
@@ -106,13 +109,34 @@ export class FFmpegPostProcessor extends PostProcessor {
       }
     }
 
-    const args = [
-      '-y',
-      '-i', inputPath,
-      '-vn',
-      '-c:a', acodec,
-      outputPath
-    ];
+    const args = ['-y', '-i', inputPath];
+
+    if (options.coverPath) {
+      args.push('-i', options.coverPath);
+      args.push('-map', '0:a');
+      args.push('-map', '1:0');
+      args.push('-c:v', 'mjpeg');
+      args.push('-id3v2_version', '3');
+      args.push('-metadata:s:v', 'title=Album cover');
+      args.push('-metadata:s:v', 'comment=Cover (front)');
+    } else {
+      args.push('-vn');
+    }
+
+    args.push('-c:a', acodec);
+    if (outputPath.endsWith('.mp3') && acodec === 'libmp3lame') {
+      args.push('-b:a', options.bitrate || '192k');
+    }
+
+    if (options.metadata) {
+      for (const [key, value] of Object.entries(options.metadata)) {
+        if (value !== undefined && value !== null && String(value).trim() !== '') {
+          args.push('-metadata', `${key}=${String(value)}`);
+        }
+      }
+    }
+
+    args.push(outputPath);
 
     return new Promise((resolve, reject) => {
       const proc = spawn('ffmpeg', args, { stdio: 'ignore' });
@@ -125,5 +149,23 @@ export class FFmpegPostProcessor extends PostProcessor {
         }
       });
     });
+  }
+
+  /**
+   * Embeds metadata tags and cover art image into an existing audio file.
+   *
+   * @param {string} audioPath - Path to existing audio file.
+   * @param {object} [options]
+   * @param {string} [options.coverPath] - Path to cover image.
+   * @param {Record<string, string>} [options.metadata] - Metadata tags (artist, title, album, etc.).
+   * @returns {Promise<string>} Output file path.
+   */
+  async embedMetadata(audioPath, options = {}) {
+    const tmpOut = `${audioPath}.tmp_tagged.${audioPath.split('.').pop()}`;
+    await this.extractAudio(audioPath, tmpOut, options);
+    const fs = await import('node:fs');
+    fs.unlinkSync(audioPath);
+    fs.renameSync(tmpOut, audioPath);
+    return audioPath;
   }
 }

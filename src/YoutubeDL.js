@@ -563,15 +563,21 @@ export class YoutubeDL {
   }
 
   /**
-   * Downloads a media URL and extracts its audio track (music).
-   * Equivalent to yt-dlp -x / --extract-audio.
+   * Downloads a media URL and extracts its audio track (music) with embedded thumbnail and metadata.
+   * Equivalent to yt-dlp -x --embed-thumbnail --add-metadata.
    *
    * @param {string} url - Media URL.
    * @param {object} [options]
    * @param {string} [options.outtmpl] - Target audio filename or template (e.g. 'music.mp3' or 'music.m4a').
    * @param {string} [options.format='mp3'] - Output audio format ('mp3', 'm4a', 'wav', 'opus').
    * @param {string} [options.acodec] - Target audio codec ('copy', 'libmp3lame', etc.).
-   * @returns {Promise<{ filename: string, info: object }>}
+   * @param {string} [options.artist] - Custom artist name (defaults to parsed video artist or uploader).
+   * @param {string} [options.title] - Custom song title (defaults to parsed title).
+   * @param {string} [options.album] - Custom album name.
+   * @param {string} [options.cover] - Custom cover image URL or local path.
+   * @param {boolean} [options.embed_thumbnail=true] - Whether to embed cover art image.
+   * @param {Record<string, string>} [options.metadata] - Additional ID3 metadata tags.
+   * @returns {Promise<{ filename: string, info: object, artist: string, title: string }>}
    */
   async extract_audio(url, options = {}) {
     const targetPath = options.outtmpl || '%(title)s.mp3';
@@ -580,55 +586,122 @@ export class YoutubeDL {
     // 1. Extract metadata
     const info = await this.extract_info(url, { download: false });
 
-    // Check if an audio-only stream is already available with a direct URL
-    const audioOnlyFormat = info.formats?.find(
-      (f) => (!f.vcodec || f.vcodec === 'none') && f.acodec && f.acodec !== 'none' && f.url
-    );
+    // 2. Parse artist and title from metadata or title string
+    let artist = options.artist || info.artist;
+    let title = options.title || info.track;
 
-    if (audioOnlyFormat && (targetPath.endsWith(`.${audioOnlyFormat.ext}`) || !isDirectAudioExt)) {
-      const destFilename = options.outtmpl || this.prepare_filename({ ...info, ext: audioOnlyFormat.ext });
-      fs.mkdirSync(path.dirname(path.resolve(destFilename)), { recursive: true });
-      const DownloaderClass = get_suitable_downloader(audioOnlyFormat, this.params);
-      const downloader = new DownloaderClass(this, { ...this.params, progress_hooks: this._progressHooks });
-      await downloader.download(destFilename, audioOnlyFormat);
-      return { filename: destFilename, info };
+    if (!artist && info.title && info.title.includes(' - ')) {
+      const parts = info.title.split(' - ');
+      artist = parts[0].trim();
+      if (!title) {
+        title = parts.slice(1).join(' - ').split('|')[0].trim();
+      }
     }
 
-    // Otherwise, download the best format with audio (e.g. format 18 MP4) to temporary file and extract audio
-    const bestWithAudio = this.select_format(info.formats, 'best') || info.formats?.[0];
-    if (!bestWithAudio) {
-      throw new Error(`No format with audio available for ${url}`);
+    if (!artist) {
+      artist = info.uploader || info.channel || 'Unknown Artist';
+    }
+    if (!title) {
+      title = info.title || 'Unknown Title';
+    }
+    const album = options.album || info.album || title;
+
+    this.to_screen(`[extract_audio] Artist: ${artist} | Title: ${title}`);
+
+    // 3. Download thumbnail for cover art embedding
+    let tmpCoverFile = null;
+    if (options.embed_thumbnail !== false) {
+      const sortedThumbs = Array.isArray(info.thumbnails)
+        ? [...info.thumbnails].sort((a, b) => (b.width || 0) - (a.width || 0))
+        : [];
+      const thumbUrl = options.cover || sortedThumbs[0]?.url || info.thumbnail;
+      if (thumbUrl) {
+        tmpCoverFile = path.resolve(`temp_cover_${Date.now()}_${info.id}.jpg`);
+        try {
+          this.to_screen(`[extract_audio] Downloading cover art from: ${thumbUrl}`);
+          await this.download_image(thumbUrl, tmpCoverFile);
+        } catch (err) {
+          this.report_warning(`Could not download thumbnail for embedding: ${err.message}`);
+          tmpCoverFile = null;
+        }
+      }
     }
 
-    const tmpVideoFile = path.resolve(`temp_${Date.now()}_${info.id}.${bestWithAudio.ext || 'mp4'}`);
-    const DownloaderClass = get_suitable_downloader(bestWithAudio, this.params);
-    const downloader = new DownloaderClass(this, { ...this.params, progress_hooks: this._progressHooks });
-
-    this.to_screen(`[download] Downloading stream for audio extraction: ${bestWithAudio.format_id}`);
-    await downloader.download(tmpVideoFile, bestWithAudio);
-
-    // Resolve final audio path
-    let finalAudioPath = options.outtmpl;
-    if (!finalAudioPath) {
-      finalAudioPath = this.prepare_filename({ ...info, ext: 'mp3' });
-    } else if (finalAudioPath.includes('%(')) {
-      finalAudioPath = this.prepare_filename({ ...info, outtmpl: finalAudioPath });
-    }
-    fs.mkdirSync(path.dirname(path.resolve(finalAudioPath)), { recursive: true });
-
-    const ffmpeg = new FFmpegPostProcessor();
-    this.to_screen(`[extract_audio] Extracting audio to: ${finalAudioPath}`);
-    await ffmpeg.extractAudio(tmpVideoFile, finalAudioPath, { acodec: options.acodec });
-
-    // Clean up temporary video file
-    try {
-      if (fs.existsSync(tmpVideoFile)) fs.unlinkSync(tmpVideoFile);
-    } catch {}
-
-    this.to_screen(`[extract_audio] 100% of ${finalAudioPath}`);
-    return {
-      filename: finalAudioPath,
-      info
+    const metadataTags = {
+      artist,
+      title,
+      album,
+      ...options.metadata
     };
+
+    let tmpVideoFile = null;
+
+    try {
+      // Check if an audio-only stream is already available with a direct URL
+      const audioOnlyFormat = info.formats?.find(
+        (f) => (!f.vcodec || f.vcodec === 'none') && f.acodec && f.acodec !== 'none' && f.url
+      );
+
+      if (audioOnlyFormat && (targetPath.endsWith(`.${audioOnlyFormat.ext}`) || !isDirectAudioExt)) {
+        const destFilename = options.outtmpl || this.prepare_filename({ ...info, ext: audioOnlyFormat.ext });
+        fs.mkdirSync(path.dirname(path.resolve(destFilename)), { recursive: true });
+        const DownloaderClass = get_suitable_downloader(audioOnlyFormat, this.params);
+        const downloader = new DownloaderClass(this, { ...this.params, progress_hooks: this._progressHooks });
+        await downloader.download(destFilename, audioOnlyFormat);
+
+        if (tmpCoverFile || Object.keys(metadataTags).length > 0) {
+          const ffmpeg = new FFmpegPostProcessor();
+          await ffmpeg.embedMetadata(destFilename, { coverPath: tmpCoverFile, metadata: metadataTags });
+        }
+
+        return { filename: destFilename, info, artist, title };
+      }
+
+      // Otherwise, download the best format with audio (e.g. format 18 MP4) to temporary file and extract audio
+      const bestWithAudio = this.select_format(info.formats, 'best') || info.formats?.[0];
+      if (!bestWithAudio) {
+        throw new Error(`No format with audio available for ${url}`);
+      }
+
+      tmpVideoFile = path.resolve(`temp_${Date.now()}_${info.id}.${bestWithAudio.ext || 'mp4'}`);
+      const DownloaderClass = get_suitable_downloader(bestWithAudio, this.params);
+      const downloader = new DownloaderClass(this, { ...this.params, progress_hooks: this._progressHooks });
+
+      this.to_screen(`[download] Downloading stream for audio extraction: ${bestWithAudio.format_id}`);
+      await downloader.download(tmpVideoFile, bestWithAudio);
+
+      // Resolve final audio path
+      let finalAudioPath = options.outtmpl;
+      if (!finalAudioPath) {
+        finalAudioPath = this.prepare_filename({ ...info, ext: 'mp3' });
+      } else if (finalAudioPath.includes('%(')) {
+        finalAudioPath = this.prepare_filename({ ...info, outtmpl: finalAudioPath });
+      }
+      fs.mkdirSync(path.dirname(path.resolve(finalAudioPath)), { recursive: true });
+
+      const ffmpeg = new FFmpegPostProcessor();
+      this.to_screen(`[extract_audio] Extracting audio with cover art & metadata to: ${finalAudioPath}`);
+      await ffmpeg.extractAudio(tmpVideoFile, finalAudioPath, {
+        acodec: options.acodec,
+        coverPath: tmpCoverFile,
+        metadata: metadataTags
+      });
+
+      this.to_screen(`[extract_audio] 100% of ${finalAudioPath}`);
+      return {
+        filename: finalAudioPath,
+        info,
+        artist,
+        title
+      };
+    } finally {
+      // Clean up temporary video and cover files
+      try {
+        if (tmpVideoFile && fs.existsSync(tmpVideoFile)) fs.unlinkSync(tmpVideoFile);
+      } catch {}
+      try {
+        if (tmpCoverFile && fs.existsSync(tmpCoverFile)) fs.unlinkSync(tmpCoverFile);
+      } catch {}
+    }
   }
 }

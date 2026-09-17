@@ -56,11 +56,17 @@ async function main() {
   console.log('Destination:', targetMp3);
 
   const result = await ydl.extract_audio(url, {
-    outtmpl: targetMp3
+    outtmpl: targetMp3,
+    artist: 'Warriyo feat. Laura Brehm',
+    title: 'Mortals',
+    album: 'NCS Release',
+    embed_thumbnail: true
   });
 
   console.log('\n=== Download Complete! ===');
   console.log('Audio file saved to Desktop:', result.filename);
+  console.log('Embedded Artist:', result.artist);
+  console.log('Embedded Title:', result.title);
 }
 
 main().catch((err) => {

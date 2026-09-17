@@ -206,6 +206,31 @@ await ydl.download(['https://example.com/banner.webp']);
 
 ---
 
+### 6. Extracting Music (MP3) with Embedded Cover Art & Artist (`yt-dlp -x --embed-thumbnail --add-metadata`)
+
+Use `extract_audio()` to download audio, convert to MP3 at high quality (192 kbps), automatically extract the artist and song title, download the highest resolution thumbnail, and embed them directly into the MP3 file using ID3v2 tags and APIC cover art:
+
+```javascript
+import { YoutubeDL } from './src/index.js';
+
+const ydl = new YoutubeDL();
+const url = 'https://www.youtube.com/watch?v=yJg-Y5byMMw';
+
+const result = await ydl.extract_audio(url, {
+  outtmpl: 'downloads/Warriyo - Mortals.mp3', // Target output file
+  artist: 'Warriyo feat. Laura Brehm',        // Custom artist (optional, auto-parsed if omitted)
+  title: 'Mortals',                           // Custom title (optional, auto-parsed if omitted)
+  album: 'NCS Release',                       // Album tag (optional)
+  embed_thumbnail: true                       // Download & embed thumbnail as ID3 album cover
+});
+
+console.log('Saved to:', result.filename);
+console.log('Embedded Artist:', result.artist);
+console.log('Embedded Title:', result.title);
+```
+
+---
+
 ## Cross-Platform Build System
 
 `js_ydlp` includes a Ninja-style CLI build system that unifies all modules into a single minified bundle with **100% comment stripping and variable mangling**.
